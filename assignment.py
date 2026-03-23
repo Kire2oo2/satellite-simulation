@@ -37,12 +37,6 @@ class ScenarioAssignment1(sim.BaseScenario):
     def update(self, t, dt):
         self.theta += dt * self.theta_dot
 
-        omega_vec = np.array([0, 0, self.omega_ie])
-        q_dot = 0.5 * self.q_E * su.Quaternion(0, *omega_vec)
-
-        self.q_E = self.q_E + dt * q_dot
-        self.q_E = self.q_E / np.linalg.norm(self.q_E.q)
-
     def get(self):
         r_i = self.r * np.array([
             np.cos(self.theta),
@@ -60,9 +54,6 @@ class ScenarioAssignment1(sim.BaseScenario):
 
     def post_process(self, t, dt):
         pass
-
-    def update(self, t, dt):
-        self.theta += dt * self.theta_dot
 
 def main():
     mu = 398600
