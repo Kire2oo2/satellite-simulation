@@ -181,7 +181,7 @@ def H_to_Rp(H):
     return H.matrix[:3,:3].T,H.matrix[-1][:3]
 
 def log_pos(name,pos):
-    file_name = 'data/'+name+'_'+dt.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')+'.txt'
+    file_name = 'data/'+name+'.txt'
     print("logged: "+file_name)
     np.savetxt(file_name,pos)
 

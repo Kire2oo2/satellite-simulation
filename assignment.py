@@ -1,7 +1,7 @@
 import numpy as np
 import simutils as su
 import simulator as sim
-
+import plotter as pl
 
 class ScenarioAssignment1(sim.BaseScenario):
 
@@ -19,6 +19,8 @@ class ScenarioAssignment1(sim.BaseScenario):
         self.q_E = None
         self.q = None
 
+
+
     def init(self, t):
         self.mu = 398600
         self.r_earth = 6371
@@ -34,12 +36,18 @@ class ScenarioAssignment1(sim.BaseScenario):
         self.q_E = su.Quaternion()
         self.q = su.Quaternion()
 
+        #plot
+        self.pos_plot = np.array([t, self.r * np.cos(self.theta), self.r * np.sin(self.theta), 0])
+
     def update(self, t, dt):
         self.theta += dt * self.theta_dot
 
         #earth rotation
         theta_E = self.omega_ie * t
         self.q_E = su.Quaternion(theta_E, np.array([0, 0, 1]))
+
+        #plot?
+        self.pos_plot = np.vstack((self.pos_plot, np.array([t, self.r * np.cos(self.theta), self.r * np.sin(self.theta), 0])))
 
     def get(self):
         r_i = self.r * np.array([
@@ -57,17 +65,16 @@ class ScenarioAssignment1(sim.BaseScenario):
         ]
 
     def post_process(self, t, dt):
-        pass
+        su.log_pos('assignment1_position', self.pos_plot)
+        pl.line_plot('data/'+'assignment1_position'+'.txt')
 
 def main():
-    mu = 398600
-    r_earth = 6371
-    r = r_earth + 400
-    t_orbit = 2 * np.pi * np.sqrt(r**3 / mu)
+    scenario = ScenarioAssignment1()
+    scenario.init(0)  # initialize scenario attributes
 
     sim_config = {
         't_0': 0,
-        't_e': t_orbit,
+        't_e': scenario.t_orbit,  # use scenario attribute
         't_step': 1,
         'speed_factor': 100,
         'anim_dt': 0.04,
@@ -75,7 +82,6 @@ def main():
         'visualise': True
     }
 
-    scenario = ScenarioAssignment1()
     sim.create_and_start_simulation(sim_config, scenario)
 
 
