@@ -37,6 +37,10 @@ class ScenarioAssignment1(sim.BaseScenario):
     def update(self, t, dt):
         self.theta += dt * self.theta_dot
 
+        #earth rotation
+        theta_E = self.omega_ie * t
+        self.q_E = su.Quaternion(theta_E, np.array([0, 0, 1]))
+
     def get(self):
         r_i = self.r * np.array([
             np.cos(self.theta),
