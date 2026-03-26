@@ -45,7 +45,7 @@ class ScenarioAssignment1(sim.BaseScenario):
         theta_E = self.omega_ie * t
         self.q_E = su.Quaternion(theta_E, np.array([0, 0, 1]))
 
-        #plot?
+        #save for plot
         self.pos_plot = np.vstack((self.pos_plot, np.array([t, self.r * np.cos(self.theta), self.r * np.sin(self.theta), 0])))
 
     def get(self):
