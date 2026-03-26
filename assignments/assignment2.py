@@ -3,7 +3,6 @@ import simutils as su
 import simulator as sim
 import plotter as pl
 
-
 class ScenarioAssignment2(sim.BaseScenario):
 
     def __init__(self):
