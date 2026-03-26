@@ -20,7 +20,6 @@ class ScenarioAssignment1(sim.BaseScenario):
         self.q = None
 
 
-
     def init(self, t):
         self.mu = 398600
         self.r_earth = 6371
