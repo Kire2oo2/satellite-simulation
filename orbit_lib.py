@@ -12,9 +12,8 @@ def mean_anomaly_from_true_anomaly(theta, e):
     return mean_anomaly_from_eccentric(eccentric_anomaly_from_true_anomaly(theta, e), e)
 
 def true_anomaly_from_eccentric_anomaly(E, e):
-    true_anomaly = 2 * np.arctan2(np.sqrt(1 + e) * np.sin(E/2),
-                       np.sqrt(1 - e) * np.cos(E/2))
-    return true_anomaly
+    return 2 * np.arctan2(np.sqrt(1 + e) * np.sin(E/2),
+                          np.sqrt(1 - e) * np.cos(E/2))
 
 def eccentric_anomaly_from_true_anomaly(true_anomaly, e):
     E = 2 * np.arctan2(np.sqrt(1 - e) * np.sin(true_anomaly/2),
