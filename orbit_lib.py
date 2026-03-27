@@ -128,10 +128,10 @@ def read_tle_file(filename):
 def sidereal_angle(JD):
     t0 = (np.trunc(JD) - 2451545) / 36525
     theta_g0 = 100.4606184 + 36000.77005361*t0 + 0.00038793*t0**2 - 2.6e-8*t0**3
-    frac = (JD + 0.5) - np.trunc(JD + 0.5)
-    theta_g = theta_g0 + (180/np.pi)*w_E*86400*frac
-    theta_g = theta_g - 360 * np.trunc(theta_g/360)
-    return np.deg2rad(theta_g)
+    frac = (JD + 0.5) - np.trunc(JD + 0.5)  # time since 00:00 UTC
+    theta_g = np.deg2rad(theta_g0) + w_E * 86400 * frac
+    theta_g = theta_g % (2*np.pi)  # wrap to [0,2π]
+    return theta_g
 
 #algorithm 2
 def state_from_orbit_params(h, e, true_anomaly, raan, i, arg_perigee):
@@ -213,11 +213,16 @@ def orbit_propagation(r_i, v_i, dt):
 
 #algorithm 6
 def epoch_to_julian_date(epoch):
-    year = int(epoch/1000)+2000
-    day = int(epoch - year*1000)
-    frac = epoch - (year*1000 + day)
-    leap = 1 if (year%4==0 and day<59) else 0
-    jd = 2451544.5 + year*365 + int(year/4) + day - leap + frac
+    # TLE epoch: YYDDD.DDDDD
+    YY = int(epoch / 1000)
+    DDD = epoch % 1000
+    # Century handling: TLE uses 1957-2056 convention
+    year = 2000 + YY if YY < 57 else 1900 + YY
+    day = int(DDD)
+    frac_day = DDD - day
+
+    A = int((year - 1) / 4)
+    jd = 1721013.5 + 365*(year - 1) + A + day + frac_day
     return jd
 
 #algorithm 7

@@ -41,6 +41,7 @@ class ScenarioAssignment2(sim.BaseScenario):
 
         # Logging
         self.pos_plot = None
+        self.ground_track = None
 
     def init(self, t):
         self.e = self.tle['e']
@@ -63,8 +64,6 @@ class ScenarioAssignment2(sim.BaseScenario):
         # Angular momentum
         self.h = np.sqrt(self.a * self.mu * (1 - self.e**2))
 
-        # Epoch
-        self.epoch = 17257.12407589
         self.jd0 = ol.epoch_to_julian_date(self.epoch)
 
         # Earth rotation quaternion
@@ -80,6 +79,7 @@ class ScenarioAssignment2(sim.BaseScenario):
 
         # Logging
         self.pos_plot = np.array([t, *self.r_i])
+        pl.log_ground_track(self, t, self.r_i)
 
     def update(self, t, dt):
         # Propagate mean anomaly
@@ -94,6 +94,7 @@ class ScenarioAssignment2(sim.BaseScenario):
 
         # Logging
         self.pos_plot = np.vstack((self.pos_plot, np.array([t, *self.r_i])))
+        pl.log_ground_track(self, t, self.r_i)
 
     def get(self):
         return [
@@ -108,6 +109,11 @@ class ScenarioAssignment2(sim.BaseScenario):
         su.log_pos('assignment2_position', self.pos_plot)
         pl.line_plot('data/assignment2_position.txt')
 
+        # Ground track plotting
+        lat_deg = np.degrees(self.ground_track[:, 1])
+        lon_deg = np.degrees(self.ground_track[:, 2])
+        pl.ground_track_plot(lat_deg, lon_deg, img_path='3DModels/earth.jpg', save_path='data/ground_track.png')
+
 
 def main():
     scenario = ScenarioAssignment2()
@@ -115,7 +121,7 @@ def main():
 
     sim_config = {
         't_0': 0,
-        't_e': scenario.t_orbit,
+        't_e': scenario.t_orbit*2,
         't_step': 1,
         'speed_factor': 100,
         'anim_dt': 0.04,
