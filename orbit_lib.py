@@ -1,6 +1,4 @@
 import numpy as np
-
-
 R_E = 6378.0           # Earth radius [km]
 w_E = 7.292115e-5       # Earth's rotation rate [rad/s]
 mu = 398600.0           # Earth gravitational parameter [km^3/s^2]
@@ -23,8 +21,8 @@ def eccentric_anomaly_from_true_anomaly(true_anomaly, e):
                        np.sqrt(1 + e) * np.cos(true_anomaly/2))
     return E
 
-def orbital_period_from_semi_major_axis(a,mu):
-    return 2 * np.pi * np.sqrt(a**3 / mu)
+def orbital_period_from_semi_major_axis(a,u):
+    return 2 * np.pi * np.sqrt(a**3 / u)
 
 def orbital_period_from_revs_per_day(revs_per_day):
     return 24*3600 / revs_per_day
@@ -216,7 +214,7 @@ def orbit_propagation(r_i, v_i, dt):
 
 #algorithm 6
 def epoch_to_julian_date(epoch):
-    year = int(epoch/1000)
+    year = int(epoch/1000)+2000
     day = int(epoch - year*1000)
     frac = epoch - (year*1000 + day)
     leap = 1 if (year%4==0 and day<59) else 0

@@ -125,6 +125,5 @@ def main():
 
     sim.create_and_start_simulation(sim_config, scenario)
 
-
 if __name__ == "__main__":
     main()
