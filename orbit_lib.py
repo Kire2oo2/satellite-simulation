@@ -213,16 +213,28 @@ def orbit_propagation(r_i, v_i, dt):
 
 #algorithm 6
 def epoch_to_julian_date(epoch):
-    # TLE epoch: YYDDD.DDDDD
-    YY = int(epoch / 1000)
+    # Split TLE epoch
+    YY = int(epoch // 1000)
     DDD = epoch % 1000
-    # Century handling: TLE uses 1957-2056 convention
-    year = 2000 + YY if YY < 57 else 1900 + YY
-    day = int(DDD)
-    frac_day = DDD - day
 
-    A = int((year - 1) / 4)
-    jd = 1721013.5 + 365*(year - 1) + A + day + frac_day
+    # Century convention: TLE uses 1957–2056
+    year = 2000 + YY if YY < 57 else 1900 + YY
+
+    day_of_year = DDD
+    day_int = int(day_of_year)
+    frac_day = day_of_year - day_int
+
+    # JD formula from your course notes
+    jd = (1721013.5
+          + 367 * year
+          - int((7 * (year + int((month := 1))) / 4))  # month = 1 placeholder
+          + int((275 * month) / 9)
+          + day_int
+          + frac_day)
+
+    # Actually, since month = 1 and day = DDD, we can just simplify:
+    jd = 1721424.5 + (year - 1) * 365 + (year - 1) // 4 - (year - 1) // 100 + (year - 1) // 400 + day_of_year
+
     return jd
 
 #algorithm 7
