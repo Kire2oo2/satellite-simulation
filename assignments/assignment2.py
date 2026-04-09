@@ -121,9 +121,9 @@ def main():
 
     sim_config = {
         't_0': 0,
-        't_e': scenario.t_orbit/4,
+        't_e': scenario.t_orbit,
         't_step': 1,
-        'speed_factor': 10000,
+        'speed_factor': 1000,
         'anim_dt': 0.04,
         'scale_factor': 1000,
         'visualise': True
