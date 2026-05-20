@@ -41,6 +41,7 @@ def _q_mul(q1, q2):
         a0*b3 + b0*a3 + a1*b2 - a2*b1
     ])
 
+
 def _q_conj(q):
     q = _q_array(q)
     return np.array([q[0], -q[1], -q[2], -q[3]])
@@ -61,8 +62,81 @@ def _q_rotate_inverse(q, v):
     u = q[1:]
     return v - 2.0 * s * np.cross(u, v) + 2.0 * np.cross(u, np.cross(u, v))
 
+
 def _shape(x):
     return np.asarray(x, dtype=float).shape
+
+
+def _unit(v):
+    v = np.asarray(v, dtype=float)
+    n = np.linalg.norm(v)
+    if n < 1e-12:
+        return np.zeros_like(v)
+    return v / n
+
+
+def _noise_sample(mu, Q, size=3):
+    if Q is None:
+        Q = 0.0
+
+    if np.isscalar(mu):
+        mu_vec = np.ones(size) * float(mu)
+    else:
+        mu_vec = np.asarray(mu, dtype=float)
+        if mu_vec.shape == ():
+            mu_vec = np.ones(size) * float(mu_vec)
+
+    if np.isscalar(Q):
+        std = np.sqrt(max(float(Q), 0.0))
+        return np.random.normal(loc=mu_vec, scale=std, size=size)
+
+    Q = np.asarray(Q, dtype=float)
+
+    if Q.shape == (size,):
+        std = np.sqrt(np.maximum(Q, 0.0))
+        return np.random.normal(loc=mu_vec, scale=std, size=size)
+
+    if Q.shape == (size, size):
+        return np.random.multivariate_normal(mu_vec, Q)
+
+    raise ValueError("Q must be scalar, vector, or covariance matrix")
+
+
+def _dcm_to_quaternion_array(R):
+    R = np.asarray(R, dtype=float)
+    tr = np.trace(R)
+
+    if tr > 0.0:
+        q0 = 0.5 * np.sqrt(1.0 + tr)
+        q1 = (R[2, 1] - R[1, 2]) / (4.0 * q0)
+        q2 = (R[0, 2] - R[2, 0]) / (4.0 * q0)
+        q3 = (R[1, 0] - R[0, 1]) / (4.0 * q0)
+    else:
+        i_max = np.argmax(np.diag(R))
+
+        if i_max == 0:
+            q1 = 0.5 * np.sqrt(max(0.0, 1.0 + R[0, 0] - R[1, 1] - R[2, 2]))
+            q0 = (R[2, 1] - R[1, 2]) / (4.0 * q1)
+            q2 = (R[0, 1] + R[1, 0]) / (4.0 * q1)
+            q3 = (R[0, 2] + R[2, 0]) / (4.0 * q1)
+        elif i_max == 1:
+            q2 = 0.5 * np.sqrt(max(0.0, 1.0 - R[0, 0] + R[1, 1] - R[2, 2]))
+            q0 = (R[0, 2] - R[2, 0]) / (4.0 * q2)
+            q1 = (R[0, 1] + R[1, 0]) / (4.0 * q2)
+            q3 = (R[1, 2] + R[2, 1]) / (4.0 * q2)
+        else:
+            q3 = 0.5 * np.sqrt(max(0.0, 1.0 - R[0, 0] - R[1, 1] + R[2, 2]))
+            q0 = (R[1, 0] - R[0, 1]) / (4.0 * q3)
+            q1 = (R[0, 2] + R[2, 0]) / (4.0 * q3)
+            q2 = (R[1, 2] + R[2, 1]) / (4.0 * q3)
+
+    q = np.array([q0, q1, q2, q3])
+    q = q / np.linalg.norm(q)
+
+    if q[0] < 0.0:
+        q = -q
+
+    return q
 
 
 class RigidBody:
@@ -173,25 +247,183 @@ class RigidBody:
 
         return np.concatenate((q_dot, w_dot))
 
-    def f_full(self, t, x):
-        p = np.asarray(x[:3], dtype=float)
-        v = np.asarray(x[3:6], dtype=float)
-        q = _q_array(x[6:10])
-        w = np.asarray(x[10:13], dtype=float)
 
-        p_dot = v
-        v_dot = self.acceleration
-        q_dot = 0.5 * _q_mul(q, np.concatenate(([0.0], w)))
-        w_dot = np.linalg.solve(
-            self.inertia_matrix,
-            self.torque - np.cross(w, self.inertia_matrix @ w)
-        )
+class gyro:
+    def __init__(self, q_bs=su.Quaternion(), p_b=np.array([0.0, 0.0, 0.0]), mu=0.0, Q=0.0, z0=None, params=None):
+        self.q_bs = _q_array(q_bs)
+        self.p = np.asarray(p_b, dtype=float)
+        self.mu = mu
+        self.Q = Q
+        self.z = np.zeros(3) if z0 is None else np.asarray(z0, dtype=float)
+        self.bg = np.zeros(3)
+        self.sigma_bg = 0.0
 
-        return np.concatenate((p_dot, v_dot, q_dot, w_dot))
+        if params is not None:
+            self.bg = np.asarray(params.get('bg', np.zeros(3)), dtype=float)
+            self.sigma_bg = params.get('sigma_bg', params.get('Q_bg', 0.0))
+
+    def update(self, t, t_step, q_ib, w_b_ib, r_i, v_i, JD=None):
+        self.bg = self.bg + _noise_sample(0.0, self.sigma_bg, 3) * t_step
+        w_s = _q_rotate_inverse(self.q_bs, w_b_ib)
+        self.z = w_s + self.bg + _noise_sample(self.mu, self.Q, 3)
+
+    def output(self, body_frame=False):
+        if body_frame:
+            return _q_rotate(self.q_bs, self.z)
+        return self.z
+
+
+class magnetometer:
+    def __init__(self, q_bs=su.Quaternion(), p_b=np.array([0.0, 0.0, 0.0]), mu=0.0, Q=0.0, z0=None, params=None):
+        self.q_bs = _q_array(q_bs)
+        self.p = np.asarray(p_b, dtype=float)
+        self.mu = mu
+        self.Q = Q
+        self.z = np.zeros(3) if z0 is None else np.asarray(z0, dtype=float)
+        self.bB = np.zeros(3)
+        self.MB = np.eye(3)
+
+        if params is not None:
+            self.bB = np.asarray(params.get('bB', np.zeros(3)), dtype=float)
+            self.MB = np.asarray(params.get('MB', np.eye(3)), dtype=float)
+
+    def update(self, t, t_step, q_ib, w_b_ib, r_i, v_i, JD=None):
+        if JD is None:
+            JD = 2451545.0 + t / 86400.0
+
+        B_i = ol.magnetic_field_dipole(r_i, JD)
+        q_is = _q_mul(q_ib, self.q_bs)
+        B_s = _unit(_q_rotate_inverse(q_is, B_i))
+        self.z = self.MB @ B_s + self.bB + _noise_sample(self.mu, self.Q, 3)
+
+    def output(self, body_frame=False):
+        if body_frame:
+            return _q_rotate(self.q_bs, self.z)
+        return self.z
+
+
+class fine_sun_sensor:
+    def __init__(self, q_bs=su.Quaternion(), p_b=np.array([0.0, 0.0, 0.0]), mu=0.0, Q=0.0, z0=None, params=None):
+        self.q_bs = _q_array(q_bs)
+        self.p = np.asarray(p_b, dtype=float)
+        self.mu = mu
+        self.Q = Q
+        self.z = np.zeros(3) if z0 is None else np.asarray(z0, dtype=float)
+        self.alpha = np.pi
+        self.valid = False
+
+        if params is not None:
+            self.alpha = params.get('alpha', np.pi)
+
+    def update(self, t, t_step, q_ib, w_b_ib, r_i, v_i, JD=None):
+        if JD is None:
+            JD = 2451545.0 + t / 86400.0
+
+        s_i = ol.sun_vector(JD)
+        s_b = _q_rotate_inverse(q_ib, _unit(s_i))
+        s_s = _q_rotate_inverse(self.q_bs, s_b)
+
+        x, y, z = s_s
+        angle = np.arctan2(np.sqrt(x**2 + y**2), z)
+
+        if z > 0.0 and angle < self.alpha / 2.0:
+            self.z = _unit(s_s + _noise_sample(self.mu, self.Q, 3))
+            self.valid = True
+        else:
+            self.z = np.zeros(3)
+            self.valid = False
+
+    def output(self, body_frame=False):
+        if np.linalg.norm(self.z) < 1e-12:
+            return np.zeros(3)
+
+        if body_frame:
+            return _unit(_q_rotate(self.q_bs, self.z))
+
+        return self.z
+
+
+class TRIAD:
+    def __init__(self, params=None):
+        self.params = params
+
+    def estimate_attitude(self, M_B, M_A):
+        if len(M_B) < 2 or len(M_A) < 2:
+            raise ValueError("TRIAD requires at least two vector pairs")
+
+        U_B = _unit(M_B[0])
+        V_B = _unit(M_B[1])
+        U_A = _unit(M_A[0])
+        V_A = _unit(M_A[1])
+
+        t1_B = U_B
+        t2_B = np.cross(t1_B, V_B)
+        t2_B = _unit(t2_B)
+        t3_B = np.cross(t2_B, t1_B)
+
+        t1_A = U_A
+        t2_A = np.cross(t1_A, V_A)
+        t2_A = _unit(t2_A)
+        t3_A = np.cross(t2_A, t1_A)
+
+        if np.linalg.norm(t2_B) < 1e-12 or np.linalg.norm(t2_A) < 1e-12:
+            raise ValueError("TRIAD vector pairs are close to parallel")
+
+        R_BA = np.column_stack((t1_B, t2_B, t3_B)) @ np.column_stack((t1_A, t2_A, t3_A)).T
+        return _dcm_to_quaternion_array(R_BA)
+
+
+class Davenport:
+    def __init__(self, params=None):
+        self.params = params
+        self.weights = None
+
+        if params is not None:
+            self.weights = params.get('weights', None)
+
+    def estimate_attitude(self, M_B, M_A):
+        if len(M_B) != len(M_A) or len(M_B) < 2:
+            raise ValueError("Davenport requires at least two matching vector pairs")
+
+        N = len(M_B)
+
+        if self.weights is None:
+            weights = np.ones(N) / N
+        else:
+            weights = np.asarray(self.weights, dtype=float)
+            weights = weights / np.sum(weights)
+
+        B = np.zeros((3, 3))
+        z = np.zeros(3)
+
+        for w_i, u_B, u_A in zip(weights, M_B, M_A):
+            u_B = _unit(u_B)
+            u_A = _unit(u_A)
+
+            if np.linalg.norm(u_B) < 1e-12 or np.linalg.norm(u_A) < 1e-12:
+                continue
+
+            B += w_i * np.outer(u_B, u_A)
+            z += w_i * np.cross(u_B, u_A)
+
+        K = np.zeros((4, 4))
+        K[0, 0] = np.trace(B)
+        K[0, 1:] = z
+        K[1:, 0] = z
+        K[1:, 1:] = B + B.T - np.trace(B) * np.eye(3)
+
+        evals, evecs = np.linalg.eigh(K)
+        q = evecs[:, np.argmax(evals)]
+        q = _q_array(q)
+
+        if q[0] < 0.0:
+            q = -q
+
+        return q
 
 
 class ADCS_PD:
-    def __init__(self, k1, k2, f_c=None, J=None):
+    def __init__(self, k1, k2, f_c=None, J=None, attitude_estimator=None):
         if J is None:
             J = f_c
             f_c = np.zeros(3)
@@ -200,18 +432,34 @@ class ADCS_PD:
         self.k2 = k2
         self.f_c = f_c
         self.J = np.asarray(J, dtype=float)
+        self.attitude_estimator = attitude_estimator
         self.tau = np.zeros(3)
         self.attitude_error = su.Quaternion()
         self.angular_velocity_error = np.zeros(3)
+        self.q_ob_est = np.array([1.0, 0.0, 0.0, 0.0])
+        self.q_ib_est = np.array([1.0, 0.0, 0.0, 0.0])
+        self.sun_body = np.zeros(3)
+        self.mag_body = np.zeros(3)
 
     def update(self, *args):
         if len(args) == 4:
             q_ib, w_b_ib, q_io, w_i_io = args
-        elif len(args) == 6:
-            _, q_ib, w_b_ib, q_io, w_i_io, _ = args
-        else:
-            raise ValueError("ADCS_PD.update expects q_ib, w_b_ib, q_io, w_i_io")
+            self._update_from_true_attitude(q_ib, w_b_ib, q_io, w_i_io)
+            return
 
+        if len(args) == 6:
+            _, q_ib, w_b_ib, q_io, w_i_io, _ = args
+            self._update_from_true_attitude(q_ib, w_b_ib, q_io, w_i_io)
+            return
+
+        if len(args) == 9:
+            t, t_step, gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, r_i, JD = args
+            self._update_from_sensors(gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, r_i, JD)
+            return
+
+        raise ValueError("ADCS_PD.update received unsupported arguments")
+
+    def _update_from_true_attitude(self, q_ib, w_b_ib, q_io, w_i_io):
         q_ib = _q_array(q_ib)
         q_io = _q_array(q_io)
         w_b_ib = np.asarray(w_b_ib, dtype=float)
@@ -227,6 +475,52 @@ class ADCS_PD:
         w_o_io_b = _q_rotate_inverse(q_ob, w_o_io)
         w_ob_b = w_b_ib - w_o_io_b
 
+        self.q_ob_est = q_ob
+        self.q_ib_est = q_ib
+        self.attitude_error = su.Quaternion(q_ob)
+        self.angular_velocity_error = w_ob_b
+        self.tau = -self.k1 * q_ob[1:] - self.k2 * w_ob_b
+
+    def _update_from_sensors(self, gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, r_i, JD):
+        q_io = _q_array(q_io)
+        w_i_io = np.asarray(w_i_io, dtype=float)
+        w_b_ib = np.asarray(gyro_measurement, dtype=float)
+
+        mag_b = _unit(magnetometer_measurement)
+        sun_vectors = [_unit(s) for s in sun_sensor_measurements if np.linalg.norm(s) > 1e-12]
+
+        if len(sun_vectors) > 0:
+            sun_b = _unit(np.sum(sun_vectors, axis=0))
+        else:
+            sun_b = np.zeros(3)
+
+        self.sun_body = sun_b
+        self.mag_body = mag_b
+
+        s_i = _unit(ol.sun_vector(JD))
+        B_i = _unit(ol.magnetic_field_dipole(r_i, JD))
+        s_o = _unit(_q_rotate_inverse(q_io, s_i))
+        B_o = _unit(_q_rotate_inverse(q_io, B_i))
+
+        if self.attitude_estimator is not None and np.linalg.norm(sun_b) > 1e-12 and np.linalg.norm(mag_b) > 1e-12:
+            try:
+                q_ob = self.attitude_estimator.estimate_attitude([sun_b * 0.0 + s_o, B_o], [sun_b, mag_b])
+            except ValueError:
+                q_ob = self.q_ob_est
+        else:
+            q_ob = self.q_ob_est
+
+        q_ob = _q_array(q_ob)
+
+        if q_ob[0] < 0.0:
+            q_ob = -q_ob
+
+        w_o_io = _q_rotate_inverse(q_io, w_i_io)
+        w_o_io_b = _q_rotate_inverse(q_ob, w_o_io)
+        w_ob_b = w_b_ib - w_o_io_b
+
+        self.q_ob_est = q_ob
+        self.q_ib_est = _q_mul(q_io, q_ob)
         self.attitude_error = su.Quaternion(q_ob)
         self.angular_velocity_error = w_ob_b
         self.tau = -self.k1 * q_ob[1:] - self.k2 * w_ob_b
@@ -259,16 +553,96 @@ class Satellite:
             return
 
         self.orbit = orbit
+        self.JD0 = kwargs.get('JD0', 2451545.0)
+        self.use_sensors = kwargs.get('use_sensors', False)
+        self.noise_scale = kwargs.get('noise_scale', 1.0)
+        estimator = kwargs.get('attitude_estimator', Davenport())
 
         if self.orbit is not None:
             r, v = self.orbit.get_state()
 
         self.body = RigidBody(r, v, m, q_ib, w_b_ib, J)
         self.N = substeps + 1
-        self.ADCS = ADCS_PD(1e-5, 2e-4, J)
+        self.ADCS = ADCS_PD(1e-5, 2e-4, J, attitude_estimator=estimator)
         self.torque = np.zeros(3)
         self.attitude_error = su.Quaternion()
         self.angular_velocity_error = np.zeros(3)
+        self.sensors = []
+        self.gyro_sensor = None
+        self.magnetometer_sensor = None
+        self.sun_sensors = []
+        self.last_measurements = {
+            'gyro': np.zeros(3),
+            'magnetometer': np.zeros(3),
+            'sun': [],
+            'JD': self.JD0
+        }
+
+        if self.use_sensors:
+            self.init_default_sensors(self.noise_scale)
+
+    def init_default_sensors(self, noise_scale=1.0):
+        self.gyro_sensor = gyro(
+            q_bs=np.array([1.0, 0.0, 0.0, 0.0]),
+            p_b=np.array([0.0, 0.0, 0.0]),
+            mu=0.0,
+            Q=0.1 * noise_scale,
+            params={'bg': np.zeros(3), 'sigma_bg': 0.0}
+        )
+
+        self.magnetometer_sensor = magnetometer(
+            q_bs=np.array([1.0, 0.0, 0.0, 0.0]),
+            p_b=np.array([0.0, 0.0, 0.0]),
+            mu=0.0,
+            Q=0.4e-8 * noise_scale,
+            params={'bB': np.zeros(3), 'MB': np.eye(3)}
+        )
+
+        c = np.cos(np.pi / 4.0)
+        s = np.sin(np.pi / 4.0)
+
+        sensor_data = [
+            (np.array([ c, 0.0,  s, 0.0]), np.array([ 0.1,  0.0,  0.0])),
+            (np.array([ c, 0.0, -s, 0.0]), np.array([-0.1,  0.0,  0.0])),
+            (np.array([ c,-s, 0.0, 0.0]), np.array([ 0.0,  0.1,  0.0])),
+            (np.array([ c, s, 0.0, 0.0]), np.array([ 0.0, -0.1,  0.0])),
+            (np.array([1.0,0.0, 0.0, 0.0]), np.array([ 0.0,  0.0,  0.1])),
+            (np.array([0.0,1.0, 0.0, 0.0]), np.array([ 0.0,  0.0, -0.1]))
+        ]
+
+        self.sun_sensors = []
+
+        for q_bs, p_b in sensor_data:
+            self.sun_sensors.append(
+                fine_sun_sensor(
+                    q_bs=q_bs,
+                    p_b=p_b,
+                    mu=0.0,
+                    Q=0.2 * noise_scale,
+                    params={'alpha': np.pi}
+                )
+            )
+
+        self.sensors = [self.gyro_sensor, self.magnetometer_sensor] + self.sun_sensors
+
+    def update_sensors(self, t_k, t_sub, q_ib, w_b_ib, r_i, v_i):
+        JD = self.JD0 + t_k / 86400.0
+
+        for sensor in self.sensors:
+            sensor.update(t_k, t_sub, q_ib, w_b_ib, r_i, v_i, JD)
+
+        gyro_measurement = self.gyro_sensor.output(body_frame=True)
+        magnetometer_measurement = self.magnetometer_sensor.output(body_frame=True)
+        sun_measurements = [sensor.output(body_frame=True) for sensor in self.sun_sensors]
+
+        self.last_measurements = {
+            'gyro': gyro_measurement,
+            'magnetometer': magnetometer_measurement,
+            'sun': sun_measurements,
+            'JD': JD
+        }
+
+        return gyro_measurement, magnetometer_measurement, sun_measurements, JD
 
     def update(self, t_k, t_step):
         if self.old_mode:
@@ -301,9 +675,13 @@ class Satellite:
             _, _, q_ib, w_b_ib = self.body.get_state()
             q_io, w_i_io, _ = ol.orbit_frame_from_state(r_i, v_i)
 
-            self.ADCS.update(q_ib, w_b_ib, q_io, w_i_io)
-            tau_u = self.ADCS.get_control()
+            if self.use_sensors:
+                gyro_m, mag_m, sun_m, JD = self.update_sensors(t_k, t_sub, q_ib, w_b_ib, r_i, v_i)
+                self.ADCS.update(t_k, t_sub, gyro_m, mag_m, sun_m, q_io, w_i_io, r_i, JD)
+            else:
+                self.ADCS.update(q_ib, w_b_ib, q_io, w_i_io)
 
+            tau_u = self.ADCS.get_control()
             self.body.update(t_k, t_sub, np.zeros(3), tau_u)
             t_k += t_sub
 
@@ -316,9 +694,13 @@ class Satellite:
             r_i, v_i, q_ib, w_b_ib = self.body.get_state()
             q_io, w_i_io, dw_i_io = self.get_orbit_frame()
 
-            self.ADCS.update(t_k, q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
-            tau_u = self.ADCS.get_control()
+            if self.use_sensors:
+                gyro_m, mag_m, sun_m, JD = self.update_sensors(t_k, t_sub, q_ib, w_b_ib, r_i, v_i)
+                self.ADCS.update(t_k, t_sub, gyro_m, mag_m, sun_m, q_io, w_i_io, r_i, JD)
+            else:
+                self.ADCS.update(t_k, q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
 
+            tau_u = self.ADCS.get_control()
             f = -ol.mu / np.linalg.norm(r_i) ** 3 * r_i
             self.body.update(t_k, t_sub, f, tau_u)
             t_k += t_sub
@@ -341,6 +723,9 @@ class Satellite:
 
         q_io, w_i_io, _ = self.get_orbit_frame()
         return _q_array(q_io), w_i_io
+
+    def get_sensor_measurements(self):
+        return self.last_measurements
 
     def update_reference(self, h):
         w = self.desired_angular_velocity

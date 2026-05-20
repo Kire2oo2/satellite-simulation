@@ -5,35 +5,44 @@ f_E = 1.0 / 298.257223563
 J2 = 0.001082629821313
 w_E = 7.292115e-5
 mu = 398600.4418
+SECONDS_IN_DAY = 24.0 * 3600.0
 DTOR = np.pi / 180.0   # Degrees to radians
 RTOD = 180.0 / np.pi   # Radians to degrees
+
 
 def mean_anomaly_from_eccentric(E, e):
     return E - e * np.sin(E)
 
+
 def mean_anomaly_from_true_anomaly(theta, e):
     return mean_anomaly_from_eccentric(eccentric_anomaly_from_true_anomaly(theta, e), e)
+
 
 def true_anomaly_from_eccentric_anomaly(E, e):
     return 2 * np.arctan2(np.sqrt(1 + e) * np.sin(E / 2),
                           np.sqrt(1 - e) * np.cos(E / 2))
+
 
 def eccentric_anomaly_from_true_anomaly(true_anomaly, e):
     E = 2 * np.arctan2(np.sqrt(1 - e) * np.sin(true_anomaly / 2),
                        np.sqrt(1 + e) * np.cos(true_anomaly / 2))
     return E
 
+
 def orbital_period_from_semi_major_axis(a, u):
     return 2 * np.pi * np.sqrt(a ** 3 / u)
 
+
 def orbital_period_from_revs_per_day(revs_per_day):
     return 24 * 3600 / revs_per_day
+
 
 def orbit_params_from_tle_params(e, revs_per_day, Me, raan, i, arg_perigee):
     n = 2 * np.pi * revs_per_day / (24 * 3600)
     a = (mu / n ** 2) ** (1 / 3)
     h = np.sqrt(a * mu * (1 - e ** 2))
     return h, e, Me, raan, i, arg_perigee
+
 
 def tle_params_from_orbit_params(h, e, true_anomaly, raan, i, arg_perigee):
     a = h ** 2 / mu / (1 - e ** 2)
@@ -55,6 +64,7 @@ def rotation_matrix_from_classical_euler_sequence(raan, i, arg_perigee):
         [0, np.sin(angle), np.cos(angle)]
     ])
     return R3(raan) @ R1(i) @ R3(arg_perigee)
+
 
 def quaternion_from_classical_euler_sequence(raan, i, arg_perigee):
     from scipy.spatial.transform import Rotation as R
@@ -79,12 +89,15 @@ def rotation_matrix_from_roll_pitch_yaw_sequence(roll, pitch, yaw):
     ])
     return R_z(yaw) @ R_y(pitch) @ R_x(roll)
 
+
 def quaternion_from_roll_pitch_yaw_sequence(roll, pitch, yaw):
     from scipy.spatial.transform import Rotation as R
     return R.from_euler('xyz', [roll, pitch, yaw]).as_quat()
 
+
 def angle_wrap_radians(angle):
     return angle % (2 * np.pi)
+
 
 def angle_wrap_degrees(angle):
     return angle % 360
@@ -478,3 +491,65 @@ class orbit_pkepler:
         r_i, v_i = self.get_state()
         return orbit_frame_from_state(r_i, v_i)
 
+
+# Assignment 7
+
+def _rotation_z(angle):
+    return np.array([
+        [np.cos(angle), -np.sin(angle), 0.0],
+        [np.sin(angle),  np.cos(angle), 0.0],
+        [0.0,            0.0,           1.0]
+    ])
+
+
+def sun_vector(JD):
+    AU = 149597870.0
+    T = (JD - 2451545.0) / 36525.0
+
+    lambda_M = angle_wrap_degrees(280.46 + 36000.771 * T)
+    M_deg = angle_wrap_degrees(357.5291092 + 35999.05034 * T)
+    eps = (23.439291 - 0.0130042 * T) * DTOR
+    M = M_deg * DTOR
+
+    lambda_e = (lambda_M + 1.914666471 * np.sin(M) + 0.019994643 * np.sin(2.0 * M)) * DTOR
+
+    r = AU * (1.000140612 - 0.016708617 * np.cos(M) - 0.000139589 * np.cos(2.0 * M))
+
+    return r * np.array([
+        np.cos(lambda_e),
+        np.cos(eps) * np.sin(lambda_e),
+        np.sin(eps) * np.sin(lambda_e)
+    ])
+
+
+def magnetic_field_dipole(r_i, JD=2451545.0):
+    r_i = np.asarray(r_i, dtype=float)
+    r_norm = np.linalg.norm(r_i)
+
+    if r_norm < 1e-12:
+        raise ValueError("Position vector magnitude is zero")
+
+    magnetic_moment = 7.767e6
+    phi = -72.76 * DTOR
+    lambda_geodetic = 80.79 * DTOR
+    lambda_geocentric = np.arctan((1.0 - f_E)**2 * np.tan(lambda_geodetic))
+
+    m_ecef = magnetic_moment * np.array([
+        np.cos(phi) * np.cos(lambda_geocentric),
+        np.sin(phi) * np.cos(lambda_geocentric),
+        np.sin(lambda_geocentric)
+    ])
+
+    theta_g = sidereal_angle(JD)
+    m_i = _rotation_z(theta_g) @ m_ecef
+
+    return (-3.0 * np.dot(r_i, m_i) * r_i + r_norm**2 * m_i) / r_norm**5
+
+
+# Common typo/alternate names that are easy to call from assignment files.
+def magnetic_field_dipole_model(r_i, JD=2451545.0):
+    return magnetic_field_dipole(r_i, JD)
+
+
+def sun_vector_model(JD):
+    return sun_vector(JD)
