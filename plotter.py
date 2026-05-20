@@ -52,6 +52,46 @@ def log_ground_track(scenario, t, r_i):
     else:
         scenario.ground_track = np.vstack((scenario.ground_track, entry))
 
+
+def plot_ground_track(file_path, img_path='earth_grid.jpg', save_path=None):
+    data = np.loadtxt(file_path)
+
+    phi = data[:, 0]
+    lam = data[:, 1]
+    h = data[:, 2]
+
+    lon_deg = phi * 180.0 / np.pi
+    lat_deg = lam * 180.0 / np.pi
+
+    lon_deg = (lon_deg + 180.0) % 360.0 - 180.0
+
+    jump_idx = np.where(np.abs(np.diff(lon_deg)) > 180.0)[0]
+
+    lon_fixed = lon_deg.copy()
+    lat_fixed = lat_deg.copy()
+
+    for idx in reversed(jump_idx):
+        lon_fixed = np.insert(lon_fixed, idx + 1, np.nan)
+        lat_fixed = np.insert(lat_fixed, idx + 1, np.nan)
+
+    img = mpimg.imread(img_path)
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.imshow(img, extent=[-180, 180, -90, 90])
+    ax.plot(lon_fixed, lat_fixed, linewidth=2, color='black')
+    ax.grid(True)
+    ax.set_yticks(np.arange(-90, 90 + 15, 15))
+    ax.set_xticks(np.arange(-180, 180 + 15, 15))
+    ax.set_ylim(-90, 90)
+    ax.set_xlim(-180, 180)
+    ax.set(xlabel='Longitude', ylabel='Latitude', title='Ground track')
+
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+
+    plt.show()
+
+
 def line_plot(file_path):
     data = np.loadtxt(file_path)
     t = data[:,0]

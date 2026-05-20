@@ -1,8 +1,10 @@
 import numpy as np
 
-R_E = 6378.0           # Earth radius [km]
-w_E = 7.292115e-5     # Earth's rotation rate [rad/s]
-mu = 398600.0          # Earth gravitational parameter [km^3/s^2]
+R_E = 6378.137
+f_E = 1.0 / 298.257223563
+J2 = 0.001082629821313
+w_E = 7.292115e-5
+mu = 398600.4418
 DTOR = np.pi / 180.0   # Degrees to radians
 RTOD = 180.0 / np.pi   # Radians to degrees
 
@@ -88,6 +90,24 @@ def angle_wrap_degrees(angle):
     return angle % 360
 
 
+def _tle_exp_to_float(s):
+    s = s.strip()
+
+    if s in ("", "0", "00000+0", "00000-0"):
+        return 0.0
+
+    if "e" in s.lower():
+        return float(s)
+
+    mantissa = s[:-2]
+    exponent = s[-2:]
+
+    if mantissa[0] in "+-":
+        return float(mantissa[0] + "0." + mantissa[1:] + "e" + exponent)
+
+    return float("0." + mantissa + "e" + exponent)
+
+
 def read_tle_file(filename):
     with open(filename, 'r') as f:
         lines = f.readlines()
@@ -96,10 +116,17 @@ def read_tle_file(filename):
         raise ValueError("TLE file must have at least 3 lines: name + 2 lines of data")
 
     name = lines[0].strip()
-    line1 = lines[1].strip()
-    line2 = lines[2].strip()
+    line1 = lines[1].rstrip("\n")
+    line2 = lines[2].rstrip("\n")
+
+    line1_parts = line1.split()
+    line2_parts = line2.split()
 
     epoch = float(line1[18:32])
+    dn = float(line1_parts[4])
+    ddn = _tle_exp_to_float(line1_parts[5])
+    bstar = _tle_exp_to_float(line1_parts[6])
+
     i = float(line2[8:16]) * DTOR
     raan = float(line2[17:25]) * DTOR
     e = float("0." + line2[26:33].strip())
@@ -115,7 +142,10 @@ def read_tle_file(filename):
         'raan': raan,
         'arg_perigee': arg_perigee,
         'mean_anomaly': mean_anomaly,
-        'revs_per_day': revs_per_day
+        'revs_per_day': revs_per_day,
+        'dn': dn,
+        'ddn': ddn,
+        'bstar': bstar
     }
 
 
@@ -319,3 +349,132 @@ class orbit_tle:
     def get_orbit_frame(self):
         r_i, v_i = self.get_state()
         return orbit_frame_from_state(r_i, v_i)
+
+# Assignment 6
+
+def datetime_to_julian_date(year, month, day, hour=0, minute=0, second=0.0):
+    if month <= 2:
+        year -= 1
+        month += 12
+
+    A = int(year / 100)
+    B = 2 - A + int(A / 4)
+
+    jd_day = int(365.25 * (year + 4716)) + int(30.6001 * (month + 1)) + day + B - 1524.5
+    frac_day = (hour + minute / 60.0 + second / 3600.0) / 24.0
+
+    return jd_day + frac_day
+
+
+def geocentric_from_xyz(r_E):
+    r_E = np.asarray(r_E, dtype=float)
+    x, y, z = r_E
+    r = np.linalg.norm(r_E)
+
+    if r < 1e-12:
+        raise ValueError("Position vector magnitude is zero")
+
+    phi = np.arctan2(y, x)
+    lam = np.arctan2(z, np.sqrt(x**2 + y**2))
+
+    return phi, lam, r
+
+
+def geocentic_from_xyz(r_E):
+    return geocentric_from_xyz(r_E)
+
+
+def xyz_from_geocentric(phi, lam, r):
+    return np.array([
+        r * np.cos(phi) * np.cos(lam),
+        r * np.sin(phi) * np.cos(lam),
+        r * np.sin(lam)
+    ])
+
+
+def geodetic_from_xyz(r_E, tol=1e-12, max_iter=100):
+    r_E = np.asarray(r_E, dtype=float)
+    x, y, z = r_E
+
+    phi = np.arctan2(y, x)
+    p = np.sqrt(x**2 + y**2)
+    lam = np.arctan2(z, p)
+    e2 = 2.0 * f_E - f_E**2
+
+    for _ in range(max_iter):
+        N = R_E / np.sqrt(1.0 - e2 * np.sin(lam)**2)
+        lam_next = np.arctan2(z + N * e2 * np.sin(lam), p)
+
+        if abs(lam_next - lam) < tol:
+            lam = lam_next
+            break
+
+        lam = lam_next
+
+    N = R_E / np.sqrt(1.0 - e2 * np.sin(lam)**2)
+
+    if abs(np.cos(lam)) > 1e-12:
+        h = p / np.cos(lam) - N
+    else:
+        h = abs(z) - N * (1.0 - f_E)**2
+
+    return phi, lam, h
+
+
+def xyz_from_geodetic(phi, lam, h):
+    e2 = 2.0 * f_E - f_E**2
+    N = R_E / np.sqrt(1.0 - e2 * np.sin(lam)**2)
+
+    return np.array([
+        (N + h) * np.cos(phi) * np.cos(lam),
+        (N + h) * np.sin(phi) * np.cos(lam),
+        (N * (1.0 - f_E)**2 + h) * np.sin(lam)
+    ])
+
+
+class orbit_pkepler:
+    def __init__(self, n, e, M_e, O, i, w, dn=0.0, ddn=0.0, bstar=0.0, tle_units=True):
+        n_rad_s = 2.0 * np.pi * n / (24.0 * 3600.0)
+
+        self.a = (mu / n_rad_s**2) ** (1.0 / 3.0)
+        self.e = e
+        self.M_e = angle_wrap_radians(M_e)
+        self.O = O
+        self.i = i
+        self.w = w
+        self.bstar = bstar
+
+        if tle_units:
+            self.dn = 4.0 * np.pi / (24.0 * 3600.0)**2 * dn
+            self.ddn = 12.0 * np.pi / (24.0 * 3600.0)**3 * ddn
+        else:
+            self.dn = dn
+            self.ddn = ddn
+
+    def propagate(self, t_step):
+        p = self.a * (1.0 - self.e**2)
+        n = np.sqrt(mu / self.a**3)
+
+        self.a = self.a - (2.0 * self.a / (3.0 * n)) * self.dn * t_step
+        self.e = self.e - (2.0 * (1.0 - self.e) / (3.0 * n)) * self.dn * t_step
+
+        self.e = np.clip(self.e, 0.0, 0.99)
+
+        self.O = self.O - (3.0 * n * R_E**2 * J2 / (2.0 * p**2)) * np.cos(self.i) * t_step
+        self.w = self.w + (3.0 * n * R_E**2 * J2 / (4.0 * p**2)) * (4.0 - 5.0 * np.sin(self.i)**2) * t_step
+        self.M_e = angle_wrap_radians(self.M_e + n * t_step + 0.5 * self.dn * t_step**2 + (1.0 / 6.0) * self.ddn * t_step**3)
+
+    def get_params(self):
+        return self.a, self.e, self.M_e, self.O, self.i, self.w, self.dn, self.ddn, self.bstar
+
+    def get_state(self):
+        E = eccentric_anomaly_from_mean_anomaly(self.M_e, self.e)
+        theta = true_anomaly_from_eccentric_anomaly(E, self.e)
+        h = np.sqrt(self.a * mu * (1.0 - self.e**2))
+
+        return state_from_orbit_params(h, self.e, theta, self.O, self.i, self.w)
+
+    def get_orbit_frame(self):
+        r_i, v_i = self.get_state()
+        return orbit_frame_from_state(r_i, v_i)
+

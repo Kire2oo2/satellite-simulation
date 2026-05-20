@@ -105,8 +105,26 @@ class Quaternion:
         v = self@Quaternion(u)@self.conjugated()
         return v[1:3]
 
-def read_TLE_file(file_name,satellite_name=''):
-  def validate_entry(Name,line1,line2):
+def _tle_exp_to_float(s):
+    s = s.strip()
+
+    if s in ("", "0", "00000+0", "00000-0"):
+        return 0.0
+
+    if "e" in s.lower():
+        return float(s)
+
+    mantissa = s[:-2]
+    exponent = s[-2:]
+
+    if mantissa[0] in "+-":
+        return float(mantissa[0] + "0." + mantissa[1:] + "e" + exponent)
+
+    return float("0." + mantissa + "e" + exponent)
+
+
+def read_TLE_file(file_name, satellite_name=''):
+  def validate_entry(Name, line1, line2):
     if not Name[0].isalpha():
       return False
     if not line1[0].startswith("1") or not len(line1) == 9:
@@ -116,30 +134,42 @@ def read_TLE_file(file_name,satellite_name=''):
     return True
 
   tle_data = []
+
   with open(file_name) as f:
     file_contents = f.readlines()
+
   if len(file_contents) < 3:
-    print("Error reading file\nRequired format is:\nAAAAAAAAAAAAAAAAAAAAAAAA\n1 NNNNNU NNNNNAAA NNNNN.NNNNNNNN +.NNNNNNNN +NNNNN-N +NNNNN-N N NNNNN\n2 NNNNN NNN.NNNN NNN.NNNN NNNNNNN NNN.NNNN NNN.NNNN NN.NNNNNNNNNNNNNN\nfor each entry")
+    print("Error reading file")
     return tle_data
 
-  for i in range(0,len(file_contents),3):
-    if(satellite_name in file_contents[i]):
+  for i in range(0, len(file_contents), 3):
+    if satellite_name in file_contents[i]:
       Name = file_contents[i].strip()
-      line1 = file_contents[i+1].strip().split()
-      line2 = file_contents[i+2].strip().split()
-      if validate_entry(Name,line1,line2):
-        epoch = float(line1[3])
-        e = float("0."+line2[4])
-        rev = float(line2[7])
-        Me = float(line2[6])
-        i = float(line2[2])
-        O = float(line2[3])
-        w = float(line2[5])
-        tle_data.append((Name,epoch,e,rev,Me,i,O,w))
+      line1 = file_contents[i + 1].strip().split()
+      line2 = file_contents[i + 2].strip().split()
+
+      if validate_entry(Name, line1, line2):
+        _, _, _, sepoch, sdn, sddn, sbstar, _, _ = line1
+        _, _, si, sO, secc, sw, sM, srev = line2
+
+        epoch = float(sepoch)
+        dn = float(sdn)
+        ddn = _tle_exp_to_float(sddn)
+        bstar = _tle_exp_to_float(sbstar)
+        e = float("." + secc)
+        rev = float(srev[:-6])
+        Me = float(sM)
+        inc = float(si)
+        O = float(sO)
+        w = float(sw)
+
+        tle_data.append((Name, epoch, e, rev, Me, inc, O, w, dn, ddn, bstar))
       else:
-        print("Error reading entry:\n{}{}{}".format(file_contents[i],file_contents[i+1],file_contents[i+2]))
+        print("Error reading entry")
         break
+
   return tle_data
+
 
 def read_obj(fname):
     verts = []
