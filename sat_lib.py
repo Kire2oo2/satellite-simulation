@@ -440,30 +440,48 @@ class ADCS_PD:
         self.q_ib_est = np.array([1.0, 0.0, 0.0, 0.0])
         self.sun_body = np.zeros(3)
         self.mag_body = np.zeros(3)
+        self.sliding_surface = np.zeros(3)
 
     def update(self, *args):
         if len(args) == 4:
             q_ib, w_b_ib, q_io, w_i_io = args
-            self._update_from_true_attitude(q_ib, w_b_ib, q_io, w_i_io)
+            self._update_from_true_attitude(q_ib, w_b_ib, q_io, w_i_io, np.zeros(3))
             return
 
         if len(args) == 6:
-            _, q_ib, w_b_ib, q_io, w_i_io, _ = args
-            self._update_from_true_attitude(q_ib, w_b_ib, q_io, w_i_io)
+            _, q_ib, w_b_ib, q_io, w_i_io, dw_i_io = args
+            self._update_from_true_attitude(q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
+            return
+
+        if len(args) == 7:
+            _, _, q_ib, w_b_ib, q_io, w_i_io, dw_i_io = args
+            self._update_from_true_attitude(q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
             return
 
         if len(args) == 9:
-            t, t_step, gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, r_i, JD = args
-            self._update_from_sensors(gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, r_i, JD)
+            _, _, gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, r_i, JD = args
+            self._update_from_sensors(gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, np.zeros(3), r_i, JD)
+            return
+
+        if len(args) == 10:
+            _, _, gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, dw_i_io, r_i, JD = args
+            self._update_from_sensors(gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, dw_i_io, r_i, JD)
             return
 
         raise ValueError("ADCS_PD.update received unsupported arguments")
 
-    def _update_from_true_attitude(self, q_ib, w_b_ib, q_io, w_i_io):
+    def _sign_q0(self, q_ob):
+        s = np.sign(q_ob[0])
+        if s == 0.0:
+            s = 1.0
+        return s
+
+    def _relative_state(self, q_ib, w_b_ib, q_io, w_i_io, dw_i_io):
         q_ib = _q_array(q_ib)
         q_io = _q_array(q_io)
         w_b_ib = np.asarray(w_b_ib, dtype=float)
         w_i_io = np.asarray(w_i_io, dtype=float)
+        dw_i_io = np.asarray(dw_i_io, dtype=float)
 
         q_ob = _q_mul(_q_conj(q_io), q_ib)
         q_ob = _q_array(q_ob)
@@ -471,19 +489,27 @@ class ADCS_PD:
         if q_ob[0] < 0.0:
             q_ob = -q_ob
 
-        w_o_io = _q_rotate_inverse(q_io, w_i_io)
-        w_o_io_b = _q_rotate_inverse(q_ob, w_o_io)
-        w_ob_b = w_b_ib - w_o_io_b
+        w_b_io = _q_rotate_inverse(q_ib, w_i_io)
+        w_b_ob = w_b_ib - w_b_io
+        dw_b_io = _q_rotate_inverse(q_ib, dw_i_io) + np.cross(w_b_io, w_b_ob)
+
+        return q_ob, w_b_ob, w_b_io, dw_b_io
+
+    def _update_from_true_attitude(self, q_ib, w_b_ib, q_io, w_i_io, dw_i_io):
+        q_ib = _q_array(q_ib)
+        w_b_ib = np.asarray(w_b_ib, dtype=float)
+        q_ob, w_b_ob, w_b_io, dw_b_io = self._relative_state(q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
 
         self.q_ob_est = q_ob
         self.q_ib_est = q_ib
         self.attitude_error = su.Quaternion(q_ob)
-        self.angular_velocity_error = w_ob_b
-        self.tau = -self.k1 * q_ob[1:] - self.k2 * w_ob_b
+        self.angular_velocity_error = w_b_ob
+        self.tau = self._control_law(q_ib, w_b_ib, q_ob, w_b_ob, w_b_io, dw_b_io)
 
-    def _update_from_sensors(self, gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, r_i, JD):
+    def _update_from_sensors(self, gyro_measurement, magnetometer_measurement, sun_sensor_measurements, q_io, w_i_io, dw_i_io, r_i, JD):
         q_io = _q_array(q_io)
         w_i_io = np.asarray(w_i_io, dtype=float)
+        dw_i_io = np.asarray(dw_i_io, dtype=float)
         w_b_ib = np.asarray(gyro_measurement, dtype=float)
 
         mag_b = _unit(magnetometer_measurement)
@@ -504,7 +530,8 @@ class ADCS_PD:
 
         if self.attitude_estimator is not None and np.linalg.norm(sun_b) > 1e-12 and np.linalg.norm(mag_b) > 1e-12:
             try:
-                q_ob = self.attitude_estimator.estimate_attitude([sun_b * 0.0 + s_o, B_o], [sun_b, mag_b])
+                q_est = self.attitude_estimator.estimate_attitude([s_o, B_o], [sun_b, mag_b])
+                q_ob = _q_conj(q_est)
             except ValueError:
                 q_ob = self.q_ob_est
         else:
@@ -515,19 +542,50 @@ class ADCS_PD:
         if q_ob[0] < 0.0:
             q_ob = -q_ob
 
-        w_o_io = _q_rotate_inverse(q_io, w_i_io)
-        w_o_io_b = _q_rotate_inverse(q_ob, w_o_io)
-        w_ob_b = w_b_ib - w_o_io_b
+        q_ib_est = _q_mul(q_io, q_ob)
+        q_ib_est = _q_array(q_ib_est)
+
+        q_ob, w_b_ob, w_b_io, dw_b_io = self._relative_state(q_ib_est, w_b_ib, q_io, w_i_io, dw_i_io)
 
         self.q_ob_est = q_ob
-        self.q_ib_est = _q_mul(q_io, q_ob)
+        self.q_ib_est = q_ib_est
         self.attitude_error = su.Quaternion(q_ob)
-        self.angular_velocity_error = w_ob_b
-        self.tau = -self.k1 * q_ob[1:] - self.k2 * w_ob_b
+        self.angular_velocity_error = w_b_ob
+        self.tau = self._control_law(q_ib_est, w_b_ib, q_ob, w_b_ob, w_b_io, dw_b_io)
+
+    def _control_law(self, q_ib, w_b_ib, q_ob, w_b_ob, w_b_io, dw_b_io):
+        q0_sign = self._sign_q0(q_ob)
+        qv = q_ob[1:]
+
+        return np.cross(w_b_ib, self.J @ w_b_ib) + self.J @ (
+            dw_b_io - self.k1 * q0_sign * qv - self.k2 * w_b_ob
+        )
 
     def get_control(self):
         return self.tau
 
+    def get_actuation(self):
+        return self.tau
+
+
+class ADCS_SM(ADCS_PD):
+    def __init__(self, k1, k, eps, f_c=None, J=None, attitude_estimator=None):
+        super().__init__(k1, 0.0, f_c, J, attitude_estimator)
+        self.k = k
+        self.eps = eps
+
+    def _control_law(self, q_ib, w_b_ib, q_ob, w_b_ob, w_b_io, dw_b_io):
+        q0_sign = self._sign_q0(q_ob)
+        q0 = q_ob[0]
+        qv = q_ob[1:]
+
+        qv_dot = q0 * w_b_ob + np.cross(qv, w_b_ob)
+        self.sliding_surface = w_b_ob + 2.0 * self.k1 * q0_sign * qv
+        sat_s = np.clip(self.sliding_surface / self.eps, a_min=-1.0, a_max=1.0)
+
+        return np.cross(w_b_ib, self.J @ w_b_ib) + self.J @ (
+            dw_b_io - self.k1 * q0_sign * qv_dot - self.k * sat_s
+        )
 
 class Satellite:
     def __init__(self, q_ib=None, w_b_ib=None, J=None, r=np.zeros(3), v=np.zeros(3), m=1, orbit=None, substeps=0, **kwargs):
@@ -555,7 +613,9 @@ class Satellite:
         self.orbit = orbit
         self.JD0 = kwargs.get('JD0', 2451545.0)
         self.use_sensors = kwargs.get('use_sensors', False)
+        self.use_disturbances = kwargs.get('use_disturbances', False)
         self.noise_scale = kwargs.get('noise_scale', 1.0)
+        self.controller = kwargs.get('controller', 'PD')
         estimator = kwargs.get('attitude_estimator', Davenport())
 
         if self.orbit is not None:
@@ -563,8 +623,27 @@ class Satellite:
 
         self.body = RigidBody(r, v, m, q_ib, w_b_ib, J)
         self.N = substeps + 1
-        self.ADCS = ADCS_PD(1e-5, 2e-4, J, attitude_estimator=estimator)
+
+        if self.controller.upper() == 'SM':
+            self.ADCS = ADCS_SM(
+                kwargs.get('k1', 0.05),
+                kwargs.get('sm_k', 0.03),
+                kwargs.get('sm_eps', 0.02),
+                J,
+                attitude_estimator=estimator
+            )
+        else:
+            self.ADCS = ADCS_PD(
+                kwargs.get('k1', 1e-5),
+                kwargs.get('k2', 2e-4),
+                J,
+                attitude_estimator=estimator
+            )
+
         self.torque = np.zeros(3)
+        self.tau_d = np.zeros(3)
+        self.tau_g = np.zeros(3)
+        self.tau_extra = np.zeros(3)
         self.attitude_error = su.Quaternion()
         self.angular_velocity_error = np.zeros(3)
         self.sensors = []
@@ -644,6 +723,23 @@ class Satellite:
 
         return gyro_measurement, magnetometer_measurement, sun_measurements, JD
 
+    def disturbance_torque(self, t_k, r_i, q_ib):
+        if not self.use_disturbances:
+            self.tau_g = np.zeros(3)
+            self.tau_extra = np.zeros(3)
+            self.tau_d = np.zeros(3)
+            return self.tau_d
+
+        self.tau_g = ol.gravity_gradient(r_i, q_ib, self.body.inertia_matrix)
+        self.tau_extra = self.body.inertia_matrix @ np.array([
+            0.01 * np.sin(0.01 * t_k),
+            0.0,
+            0.01 * np.cos(0.01 * t_k)
+        ])
+        self.tau_d = self.tau_g + self.tau_extra
+
+        return self.tau_d
+
     def update(self, t_k, t_step):
         if self.old_mode:
             self.torque = self.control_torque()
@@ -673,16 +769,17 @@ class Satellite:
             v_i = v_0 + n / self.N * (v_1 - v_0)
 
             _, _, q_ib, w_b_ib = self.body.get_state()
-            q_io, w_i_io, _ = ol.orbit_frame_from_state(r_i, v_i)
+            q_io, w_i_io, dw_i_io = ol.orbit_frame_from_state(r_i, v_i)
 
             if self.use_sensors:
                 gyro_m, mag_m, sun_m, JD = self.update_sensors(t_k, t_sub, q_ib, w_b_ib, r_i, v_i)
-                self.ADCS.update(t_k, t_sub, gyro_m, mag_m, sun_m, q_io, w_i_io, r_i, JD)
+                self.ADCS.update(t_k, t_sub, gyro_m, mag_m, sun_m, q_io, w_i_io, dw_i_io, r_i, JD)
             else:
-                self.ADCS.update(q_ib, w_b_ib, q_io, w_i_io)
+                self.ADCS.update(t_k, t_sub, q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
 
             tau_u = self.ADCS.get_control()
-            self.body.update(t_k, t_sub, np.zeros(3), tau_u)
+            tau_d = self.disturbance_torque(t_k, r_i, q_ib)
+            self.body.update(t_k, t_sub, np.zeros(3), tau_u + tau_d)
             t_k += t_sub
 
         self.body.p, self.body.v = self.orbit.get_state()
@@ -696,13 +793,14 @@ class Satellite:
 
             if self.use_sensors:
                 gyro_m, mag_m, sun_m, JD = self.update_sensors(t_k, t_sub, q_ib, w_b_ib, r_i, v_i)
-                self.ADCS.update(t_k, t_sub, gyro_m, mag_m, sun_m, q_io, w_i_io, r_i, JD)
+                self.ADCS.update(t_k, t_sub, gyro_m, mag_m, sun_m, q_io, w_i_io, dw_i_io, r_i, JD)
             else:
-                self.ADCS.update(t_k, q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
+                self.ADCS.update(t_k, t_sub, q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
 
             tau_u = self.ADCS.get_control()
+            tau_d = self.disturbance_torque(t_k, r_i, q_ib)
             f = -ol.mu / np.linalg.norm(r_i) ** 3 * r_i
-            self.body.update(t_k, t_sub, f, tau_u)
+            self.body.update(t_k, t_sub, f, tau_u + tau_d)
             t_k += t_sub
 
     def get_state(self):

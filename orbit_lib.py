@@ -553,3 +553,44 @@ def magnetic_field_dipole_model(r_i, JD=2451545.0):
 
 def sun_vector_model(JD):
     return sun_vector(JD)
+
+
+# Assignment 8
+
+def _q_array_local(q):
+    if hasattr(q, 'q'):
+        q = q.q
+
+    q = np.asarray(q, dtype=float)
+
+    if q.shape != (4,):
+        raise ValueError("Quaternion must have shape (4,)")
+
+    n = np.linalg.norm(q)
+
+    if n < 1e-12:
+        raise ValueError("Quaternion magnitude is zero")
+
+    return q / n
+
+
+def _q_rotate_inverse_local(q, v):
+    q = _q_array_local(q)
+    v = np.asarray(v, dtype=float)
+    s = q[0]
+    u = q[1:]
+
+    return v - 2.0 * s * np.cross(u, v) + 2.0 * np.cross(u, np.cross(u, v))
+
+
+def gravity_gradient(r_i, q_ib, J):
+    r_i = np.asarray(r_i, dtype=float)
+    J = np.asarray(J, dtype=float)
+
+    r_b = _q_rotate_inverse_local(q_ib, r_i)
+    r = np.linalg.norm(r_b)
+
+    if r < 1e-12:
+        raise ValueError("Position vector magnitude is zero")
+
+    return 3.0 * mu / r**5 * np.cross(r_b, J @ r_b)
