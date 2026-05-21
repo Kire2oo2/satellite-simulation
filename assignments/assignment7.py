@@ -10,7 +10,7 @@ import sat_lib as sl
 
 
 VISUALISE = True
-USE_CURRENT_TIME = True
+USE_CURRENT_TIME = False
 NOISE_SCALE = 0.004
 ATTITUDE_ESTIMATOR = "Davenport"    # Change to "TRIAD" if you want to compare estimators
 
