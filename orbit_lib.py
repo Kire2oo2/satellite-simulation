@@ -600,3 +600,84 @@ def gravity_gradient(r_i, q_ib, J):
         raise ValueError("Position vector magnitude is zero")
 
     return 3.0 * mu / r**5 * np.cross(r_b, J @ r_b)
+
+# Assignment 9 helper functions
+
+def read_tles(filename):
+    """Read a file containing one or more 3-line TLE entries.
+
+    Returns a dictionary where each key is the satellite name and each value
+    uses the same field names as read_tle_file().
+    """
+    with open(filename, 'r') as f:
+        lines = [line.rstrip("\n") for line in f.readlines() if line.strip()]
+
+    if len(lines) % 3 != 0:
+        raise ValueError("TLE file must contain name + line 1 + line 2 for each satellite")
+
+    tles = {}
+
+    for k in range(0, len(lines), 3):
+        name = lines[k].strip()
+        line1 = lines[k + 1].rstrip("\n")
+        line2 = lines[k + 2].rstrip("\n")
+
+        line1_parts = line1.split()
+        line2_parts = line2.split()
+
+        tles[name] = {
+            'name': name,
+            'epoch': float(line1[18:32]),
+            'e': float("0." + line2[26:33].strip()),
+            'i': float(line2[8:16]) * DTOR,
+            'raan': float(line2[17:25]) * DTOR,
+            'arg_perigee': float(line2[34:42]) * DTOR,
+            'mean_anomaly': float(line2[43:51]) * DTOR,
+            'revs_per_day': float(line2[52:63]),
+            'dn': float(line1_parts[4]),
+            'ddn': _tle_exp_to_float(line1_parts[5]),
+            'bstar': _tle_exp_to_float(line1_parts[6])
+        }
+
+    return tles
+
+
+def orbit_pkepler_from_tle(tle):
+    """Create a PKepler orbit object directly from a TLE dictionary."""
+    return orbit_pkepler(
+        n=tle['revs_per_day'],
+        e=tle['e'],
+        M_e=tle['mean_anomaly'],
+        O=tle['raan'],
+        i=tle['i'],
+        w=tle['arg_perigee'],
+        dn=tle['dn'],
+        ddn=tle['ddn'],
+        bstar=tle['bstar'],
+        tle_units=True
+    )
+
+
+def eci_to_ecef(r_i, theta_E):
+    """Rotate an inertial position vector into ECEF using sidereal angle."""
+    r_i = np.asarray(r_i, dtype=float)
+
+    c = np.cos(-theta_E)
+    s = np.sin(-theta_E)
+
+    return np.array([
+        c * r_i[0] - s * r_i[1],
+        s * r_i[0] + c * r_i[1],
+        r_i[2]
+    ])
+
+
+def geodetic_from_eci(r_i, theta_E):
+    """Convert ECI position to geodetic longitude, latitude and altitude."""
+    return geodetic_from_xyz(eci_to_ecef(r_i, theta_E))
+
+
+def angle_error(angle):
+    """Small signed angular difference in radians."""
+    return (angle + np.pi) % (2.0 * np.pi) - np.pi
+

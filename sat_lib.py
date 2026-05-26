@@ -855,3 +855,84 @@ class Satellite:
         self.angular_velocity_error = w_db_b
 
         return -self.k1 * q_db[1:] - self.k2 * w_db_b
+
+# Assignment 9 helper functions
+
+def random_unit_vector(rng):
+    u = rng.normal(0.0, 1.0, 3)
+    n = np.linalg.norm(u)
+
+    if n < 1.0e-12:
+        return np.array([1.0, 0.0, 0.0])
+
+    return u / n
+
+
+def star_tracker_measurement(q_ib, rng, mu=0.0, Q=1.0e-2):
+    """Simplified star tracker quaternion measurement.
+
+    Q is used directly as the standard deviation, matching the assignment
+    listing where Q is passed directly to np.random.normal().
+    """
+    theta_noise = rng.normal(mu, Q)
+    u = random_unit_vector(rng)
+
+    q_e = np.array([
+        np.cos(theta_noise / 2.0),
+        *(np.sin(theta_noise / 2.0) * u)
+    ])
+
+    return _q_array(_q_mul(q_ib, q_e))
+
+
+def average_star_trackers(q_measurements):
+    """Average one or more star tracker quaternion measurements.
+
+    For one tracker, the measurement is used directly. For three trackers,
+    the vector observations described in Assignment 9 are sent through
+    Davenport's q-method.
+    """
+    if len(q_measurements) == 1:
+        return q_measurements[0]
+
+    basis = [
+        np.array([1.0, 0.0, 0.0]),
+        np.array([0.0, 1.0, 0.0]),
+        np.array([0.0, 0.0, 1.0])
+    ]
+
+    M_A = []
+    M_B = []
+
+    for k, q_m in enumerate(q_measurements):
+        a_vec = basis[k % 3]
+        b_vec = basis[(k + 1) % 3]
+
+        M_A.append(a_vec)
+        M_A.append(b_vec)
+
+        M_B.append(_q_rotate(q_m, a_vec))
+        M_B.append(_q_rotate(q_m, b_vec))
+
+    q_hat = Davenport().estimate_attitude(M_A, M_B)
+
+    if q_hat[0] < 0.0:
+        q_hat = -q_hat
+
+    return _q_array(q_hat)
+
+
+def quaternion_error(q_desired, q_actual):
+    q_err = _q_array(_q_mul(_q_conj(q_desired), q_actual))
+
+    if q_err[0] < 0.0:
+        q_err = -q_err
+
+    return q_err
+
+
+def pointing_error_arcsec(q_err):
+    q_err = _q_array(q_err)
+    qv_norm = min(1.0, np.linalg.norm(q_err[1:]))
+    return 2.0 * 180.0 * 3600.0 / np.pi * np.arcsin(qv_norm)
+
