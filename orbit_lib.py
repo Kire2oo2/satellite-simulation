@@ -471,11 +471,17 @@ class orbit_pkepler:
         self.a = self.a - (2.0 * self.a / (3.0 * n)) * self.dn * t_step
         self.e = self.e - (2.0 * (1.0 - self.e) / (3.0 * n)) * self.dn * t_step
 
-        self.e = np.clip(self.e, 0.0, 0.99)
+        self.e = max(self.e, 0.0)
 
-        self.O = self.O - (3.0 * n * R_E**2 * J2 / (2.0 * p**2)) * np.cos(self.i) * t_step
-        self.w = self.w + (3.0 * n * R_E**2 * J2 / (4.0 * p**2)) * (4.0 - 5.0 * np.sin(self.i)**2) * t_step
-        self.M_e = angle_wrap_radians(self.M_e + n * t_step + 0.5 * self.dn * t_step**2 + (1.0 / 6.0) * self.ddn * t_step**3)
+        self.O = angle_wrap_radians(
+            self.O - (3.0 * n * R_E**2 * J2 / (2.0 * p**2)) * np.cos(self.i) * t_step
+        )
+        self.w = angle_wrap_radians(
+            self.w + (3.0 * n * R_E**2 * J2 / (4.0 * p**2)) * (4.0 - 5.0 * np.sin(self.i)**2) * t_step
+        )
+        self.M_e = angle_wrap_radians(
+            self.M_e + n * t_step + 0.5 * self.dn * t_step**2 + (1.0 / 6.0) * self.ddn * t_step**3
+        )
 
     def get_params(self):
         return self.a, self.e, self.M_e, self.O, self.i, self.w, self.dn, self.ddn, self.bstar

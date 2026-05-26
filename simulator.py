@@ -17,7 +17,7 @@ import sat_lib as sl
 
 class SimCanvas(scene.SceneCanvas):
     def __init__(self,anim_queue,anim_dt,anim_close,scale_factor,scene_conf=None):
-        _default_conf = {'satellite_model':'3DModels/satellite.obj','earth_model':'3DModels/earth.obj','earth_texture':'3DModels/earth.jpg'}
+        _default_conf = {'satellite_model':'3DModels/HST.obj','earth_model':'3DModels/earth.obj','earth_texture':'3DModels/earth.jpg'}
         scene.SceneCanvas.__init__(self,title='STE-3605 Simulator',keys='interactive',size=(800,600))
         self.unfreeze()
         self.anim_queue = anim_queue
