@@ -20,8 +20,8 @@ OLD_TLE = "HST2"
 RUN_PART_1 = False
 RUN_PART_2 = True
 
-RUN_PD_1ST = False
-RUN_SM_1ST = False
+RUN_PD_1ST = True
+RUN_SM_1ST = True
 RUN_SM_3ST = True
 
 ACTUATOR_LIMIT = 1.13
@@ -34,7 +34,7 @@ SM_K1 = 2.0e-2
 SM_K = 5.0e-5
 SM_EPS = 5.0e-5
 
-USE_ASSIGNMENT_SENSOR_NOISE = False
+USE_ASSIGNMENT_SENSOR_NOISE = True
 
 if USE_ASSIGNMENT_SENSOR_NOISE:
     GYRO_MU = 0.0
@@ -428,7 +428,7 @@ def run_scenario(scenario, t_end, t_step):
         "t_0": 0.0,
         "t_e": t_end,
         "t_step": t_step,
-        "speed_factor": 100,
+        "speed_factor": 100 if VISUALISE else 1.0e12,
         "anim_dt": 1.0 / 25.0,
         "scale_factor": 1000,
         "visualise": VISUALISE
