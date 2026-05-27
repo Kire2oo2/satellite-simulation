@@ -281,9 +281,6 @@ def step_RK4(h, t_k, x_k, f):
 
     return x_k + (h / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
 
-
-
-
 # Assignment 4 attitude functions
 
 

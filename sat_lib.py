@@ -936,3 +936,95 @@ def pointing_error_arcsec(q_err):
     qv_norm = min(1.0, np.linalg.norm(q_err[1:]))
     return 2.0 * 180.0 * 3600.0 / np.pi * np.arcsin(qv_norm)
 
+
+
+def solar_array_torque(t, A1=0.2, A2=0.2, p1=0.14*np.pi, p2=1.22*np.pi,
+                                   phi1=0.31*np.pi, phi2=-0.05*np.pi):
+    d = A1 * np.sin(p1 * t + phi1) + A2 * np.sin(p2 * t + phi2)
+    return np.array([0.0, d, 0.0])
+
+
+def control_torque(controller, q_err_est, w_hat_b_ib, J,
+                               pd_k1, pd_k2, sm_k1, sm_k, sm_eps):
+    q_err_est = _q_array(q_err_est)
+    w_hat_b_ib = np.asarray(w_hat_b_ib, dtype=float)
+    J = np.asarray(J, dtype=float)
+
+    if controller.upper() == "PD":
+        s = np.zeros(3)
+        tau_c = np.cross(w_hat_b_ib, J @ w_hat_b_ib) + J @ (
+            -pd_k1 * q_err_est[1:] - pd_k2 * w_hat_b_ib
+        )
+        return tau_c, s
+
+    qv_dot = q_err_est[0] * w_hat_b_ib + np.cross(q_err_est[1:], w_hat_b_ib)
+    s = w_hat_b_ib + 2.0 * sm_k1 * q_err_est[1:]
+    sat_s = np.clip(s / sm_eps, -1.0, 1.0)
+    tau_c = np.cross(w_hat_b_ib, J @ w_hat_b_ib) + J @ (
+        -sm_k1 * qv_dot - sm_k * sat_s
+    )
+    return tau_c, s
+
+
+def attitude_step(t, dt, r_i, q_ib, w_b_ib, q_desired, J, J_inv,
+                              controller, star_trackers, rng, actuator_limit,
+                              gyro_mu, gyro_variance, star_mu, star_Q,
+                              pd_k1, pd_k2, sm_k1, sm_k, sm_eps,
+                              solar_a1, solar_a2, solar_p1, solar_p2,
+                              solar_phi1, solar_phi2):
+    q_measurements = []
+    for _ in range(star_trackers):
+        q_measurements.append(star_tracker_measurement(q_ib, rng, star_mu, star_Q))
+
+    q_hat_ib = average_star_trackers(q_measurements)
+    w_hat_b_ib = w_b_ib + rng.normal(gyro_mu, np.sqrt(gyro_variance), 3)
+
+    q_err_est = quaternion_error(q_desired, q_hat_ib)
+    tau_c, s = control_torque(
+        controller, q_err_est, w_hat_b_ib, J,
+        pd_k1, pd_k2, sm_k1, sm_k, sm_eps
+    )
+    tau_a = np.clip(tau_c, -actuator_limit, actuator_limit)
+
+    tau_g = ol.gravity_gradient(r_i, q_ib, J)
+    tau_solar = solar_array_torque(
+        t, solar_a1, solar_a2, solar_p1, solar_p2, solar_phi1, solar_phi2
+    )
+    tau_d = tau_g + tau_solar
+    tau_total = tau_a + tau_d
+
+    q_err_true = quaternion_error(q_desired, q_ib)
+    true_arcsec = pointing_error_arcsec(q_err_true)
+    est_arcsec = pointing_error_arcsec(q_err_est)
+
+    row = [
+        t,
+        true_arcsec,
+        est_arcsec,
+        np.linalg.norm(q_err_true[1:]),
+        np.linalg.norm(w_b_ib),
+        np.linalg.norm(w_hat_b_ib),
+        tau_c[0], tau_c[1], tau_c[2], np.linalg.norm(tau_c),
+        tau_a[0], tau_a[1], tau_a[2], np.linalg.norm(tau_a),
+        tau_g[0], tau_g[1], tau_g[2], np.linalg.norm(tau_g),
+        tau_solar[0], tau_solar[1], tau_solar[2], np.linalg.norm(tau_solar),
+        tau_d[0], tau_d[1], tau_d[2], np.linalg.norm(tau_d),
+        s[0], s[1], s[2], np.linalg.norm(s)
+    ]
+
+    w_dot = J_inv @ (tau_total - np.cross(w_b_ib, J @ w_b_ib))
+    q_dot = 0.5 * _q_mul(q_ib, np.array([0.0, *w_b_ib]))
+
+    w_next = w_b_ib + dt * w_dot
+    q_next = _q_array(q_ib + dt * q_dot)
+
+    return q_next, w_next, row
+
+
+def part2_header():
+    return (
+        "time_s true_error_arcsec estimated_error_arcsec true_qv_norm true_w_norm measured_w_norm "
+        "tau_c_x tau_c_y tau_c_z tau_c_norm tau_a_x tau_a_y tau_a_z tau_a_norm "
+        "tau_g_x tau_g_y tau_g_z tau_g_norm tau_solar_x tau_solar_y tau_solar_z tau_solar_norm "
+        "tau_d_x tau_d_y tau_d_z tau_d_norm s_x s_y s_z s_norm"
+    )

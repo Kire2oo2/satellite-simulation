@@ -273,30 +273,31 @@ def plot_assignment9_part2_results(case_data, actuator_limit, columns, plot_dir=
 
     fig, ax = plt.subplots()
     for label, plot_label, data in case_data:
-        if label.startswith("SM"):
+        if label.startswith('SM'):
             plot_decimated(
                 ax,
-                data[:, COL_TIME] / 60.0,
-                data[:, COL_S_NORM],
+                data[:, col_time] / 60.0,
+                data[:, col_s_norm],
                 label=plot_label,
                 linewidth=0.55,
                 alpha=0.75,
                 max_points=4000
             )
-    ax.set_xlabel("Time [min]")
-    ax.set_ylabel("Sliding surface norm")
-    ax.set_title("Sliding mode surface")
+
+    ax.set_xlabel('Time [min]')
+    ax.set_ylabel('Sliding surface norm')
+    ax.set_title('Sliding mode surface')
     ax.grid(True)
     ax.legend()
-    save_plot(fig, "assignment9_part2_sliding_surface.png")
+    save_plot(fig, 'assignment9_part2_sliding_surface.png', plot_dir)
 
     fig, ax = plt.subplots()
     for label, plot_label, data in case_data:
-        if label.startswith("SM"):
+        if label.startswith('SM'):
             plot_decimated(
                 ax,
-                data[:, COL_TIME] / 60.0,
-                data[:, COL_S_NORM],
+                data[:, col_time] / 60.0,
+                data[:, col_s_norm],
                 label=plot_label,
                 linewidth=0.55,
                 alpha=0.75,
@@ -304,10 +305,47 @@ def plot_assignment9_part2_results(case_data, actuator_limit, columns, plot_dir=
             )
 
     ax.set_ylim(0.0, 0.004)
-    ax.set_xlabel("Time [min]")
-    ax.set_ylabel("Sliding surface norm")
-    ax.set_title("Sliding mode surface, zoomed view")
+    ax.set_xlabel('Time [min]')
+    ax.set_ylabel('Sliding surface norm')
+    ax.set_title('Sliding mode surface, zoomed view')
     ax.grid(True)
     ax.legend()
-    save_plot(fig, "assignment9_part2_sliding_surface_zoomed.png")
+    save_plot(fig, 'assignment9_part2_sliding_surface_zoomed.png', plot_dir)
+
+    data = case_data[0][2]
+    fig, ax = plt.subplots()
+    plot_decimated(
+        ax,
+        data[:, col_time] / 60.0,
+        data[:, col_tau_g_norm],
+        label='gravity-gradient',
+        linewidth=0.45,
+        alpha=0.75,
+        max_points=4000
+    )
+    plot_decimated(
+        ax,
+        data[:, col_time] / 60.0,
+        data[:, col_tau_solar_norm],
+        label='solar-array',
+        linewidth=0.7,
+        alpha=0.85,
+        max_points=4000
+    )
+    plot_decimated(
+        ax,
+        data[:, col_time] / 60.0,
+        data[:, col_tau_d_norm],
+        label='total',
+        linewidth=0.45,
+        alpha=0.75,
+        max_points=4000
+    )
+
+    ax.set_xlabel('Time [min]')
+    ax.set_ylabel('Disturbance torque norm [Nm]')
+    ax.set_title('Disturbance torques')
+    ax.grid(True)
+    ax.legend()
+    save_plot(fig, 'assignment9_part2_disturbance_torque.png', plot_dir)
 
