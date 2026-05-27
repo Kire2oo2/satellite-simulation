@@ -30,9 +30,9 @@ RANDOM_SEED = 9
 
 PD_K1 = 1.0e-4
 PD_K2 = 2.0e-2
-SM_K1 = 8.0e-2
-SM_K = 4.0e-4
-SM_EPS = 5.0e-6
+SM_K1 = 2.0e-2
+SM_K = 5.0e-5
+SM_EPS = 5.0e-5
 
 USE_ASSIGNMENT_SENSOR_NOISE = False
 
