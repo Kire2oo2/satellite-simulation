@@ -885,36 +885,73 @@ def star_tracker_measurement(q_ib, rng, mu=0.0, Q=1.0e-2):
     return _q_array(_q_mul(q_ib, q_e))
 
 
+def _q_rotated_basis_vector(q, idx):
+    q = _q_array(q)
+    q0, q1, q2, q3 = q
+
+    if idx == 0:
+        return np.array([
+            1.0 - 2.0 * (q2*q2 + q3*q3),
+            2.0 * (q1*q2 + q0*q3),
+            2.0 * (q1*q3 - q0*q2)
+        ])
+
+    if idx == 1:
+        return np.array([
+            2.0 * (q1*q2 - q0*q3),
+            1.0 - 2.0 * (q1*q1 + q3*q3),
+            2.0 * (q2*q3 + q0*q1)
+        ])
+
+    return np.array([
+        2.0 * (q1*q3 + q0*q2),
+        2.0 * (q2*q3 - q0*q1),
+        1.0 - 2.0 * (q1*q1 + q2*q2)
+    ])
+
+
+def _cross_basis_with_vector(idx, v):
+    if idx == 0:
+        return np.array([0.0, -v[2], v[1]])
+
+    if idx == 1:
+        return np.array([v[2], 0.0, -v[0]])
+
+    return np.array([-v[1], v[0], 0.0])
+
+
 def average_star_trackers(q_measurements):
-    """Average one or more star tracker quaternion measurements.
-
-    For one tracker, the measurement is used directly. For three trackers,
-    the vector observations described in Assignment 9 are sent through
-    Davenport's q-method.
-    """
     if len(q_measurements) == 1:
-        return q_measurements[0]
+        return _q_array(q_measurements[0])
 
-    basis = [
-        np.array([1.0, 0.0, 0.0]),
-        np.array([0.0, 1.0, 0.0]),
-        np.array([0.0, 0.0, 1.0])
-    ]
+    B = np.zeros((3, 3))
+    z = np.zeros(3)
 
-    M_A = []
-    M_B = []
+    weight = 1.0 / (2.0 * len(q_measurements))
 
     for k, q_m in enumerate(q_measurements):
-        a_vec = basis[k % 3]
-        b_vec = basis[(k + 1) % 3]
+        idx_a = k % 3
+        idx_b = (k + 1) % 3
 
-        M_A.append(a_vec)
-        M_A.append(b_vec)
+        m_a = _q_rotated_basis_vector(q_m, idx_a)
+        m_b = _q_rotated_basis_vector(q_m, idx_b)
 
-        M_B.append(_q_rotate(q_m, a_vec))
-        M_B.append(_q_rotate(q_m, b_vec))
+        B[idx_a, :] += weight * m_a
+        B[idx_b, :] += weight * m_b
 
-    q_hat = Davenport().estimate_attitude(M_A, M_B)
+        z += weight * _cross_basis_with_vector(idx_a, m_a)
+        z += weight * _cross_basis_with_vector(idx_b, m_b)
+
+    tr = np.trace(B)
+
+    K = np.zeros((4, 4))
+    K[0, 0] = tr
+    K[0, 1:] = z
+    K[1:, 0] = z
+    K[1:, 1:] = B + B.T - tr * np.eye(3)
+
+    evals, evecs = np.linalg.eigh(K)
+    q_hat = evecs[:, np.argmax(evals)]
 
     if q_hat[0] < 0.0:
         q_hat = -q_hat

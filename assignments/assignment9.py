@@ -17,12 +17,18 @@ PLOT_DIR = "plots"
 CURRENT_TLE = "HST1"
 OLD_TLE = "HST2"
 
+#-----------------------------------------------------------------
+#Variables to change what programs are running for this assignment:
+
 RUN_PART_1 = False
 RUN_PART_2 = True
 
 RUN_PD_1ST = True
+RUN_PD_3ST = True
 RUN_SM_1ST = True
 RUN_SM_3ST = True
+
+#-----------------------------------------------------------------
 
 ACTUATOR_LIMIT = 1.13
 ATTITUDE_DT = 0.25
@@ -30,9 +36,9 @@ RANDOM_SEED = 9
 
 PD_K1 = 1.0e-4
 PD_K2 = 2.0e-2
-SM_K1 = 2.0e-2
-SM_K = 5.0e-5
-SM_EPS = 5.0e-5
+SM_K1 = 0.25
+SM_K = 3e-4
+SM_EPS = 3.0e-5
 
 USE_ASSIGNMENT_SENSOR_NOISE = True
 
@@ -390,8 +396,9 @@ class Part2Case(sim.BaseScenario):
         self.r_i = r_i
         self.attitude_log.append(row)
         self.orbit.propagate(dt)
-        theta_E = ol.sidereal_angle(self.JD0 + (t + dt) / ol.SECONDS_IN_DAY)
-        self.q_E = su.Quaternion(theta_E, np.array([0.0, 0.0, 1.0]))
+        if VISUALISE:
+            theta_E = ol.sidereal_angle(self.JD0 + (t + dt) / ol.SECONDS_IN_DAY)
+            self.q_E = su.Quaternion(theta_E, np.array([0.0, 0.0, 1.0]))
 
     def get(self):
         return [
@@ -485,6 +492,9 @@ def get_part2_cases():
 
     if RUN_PD_1ST:
         cases.append(["PD_1ST", "PD", 1])
+
+    if RUN_PD_3ST:
+        cases.append(["PD_3ST", "PD", 3])
 
     if RUN_SM_1ST:
         cases.append(["SM_1ST", "SM", 1])
