@@ -143,6 +143,31 @@ def plot_decimated(ax, x, y, label=None, linewidth=0.8, alpha=0.85, max_points=4
     )
 
 
+def rolling_std(y, window):
+    y = np.asarray(y, dtype=float)
+    out = np.full(len(y), np.nan)
+
+    if window <= 1 or len(y) == 0:
+        return np.zeros_like(y, dtype=float)
+
+    for i in range(window - 1, len(y)):
+        out[i] = np.std(y[i - window + 1:i + 1])
+
+    return out
+
+
+def rolling_rms(y, window):
+    y = np.asarray(y, dtype=float)
+    out = np.full(len(y), np.nan)
+
+    if window <= 1 or len(y) == 0:
+        return np.abs(y)
+
+    for i in range(window - 1, len(y)):
+        out[i] = np.sqrt(np.mean(y[i - window + 1:i + 1]**2))
+
+    return out
+
 def wrap_ground_track(lon_rad, lat_rad):
     lon_deg = (lon_rad * 180.0 / np.pi + 180.0) % 360.0 - 180.0
     lat_deg = lat_rad * 180.0 / np.pi
@@ -250,6 +275,60 @@ def plot_assignment9_part2_results(case_data, actuator_limit, columns, plot_dir=
     ax.grid(True)
     ax.legend()
     save_plot(fig, 'assignment9_part2_pointing_error.png', plot_dir)
+
+    fig, ax = plt.subplots()
+    for label, plot_label, data in case_data:
+        plot_decimated(
+            ax,
+            data[:, col_time] / 60.0,
+            np.maximum(data[:, col_true_arcsec], 1e-12),
+            label=plot_label,
+            linewidth=0.8,
+            alpha=0.9,
+            max_points=4000
+        )
+
+    ax.axhline(0.007, linestyle='--', linewidth=1.0, label='0.007 arcsec HST reference')
+    ax.set_yscale('log')
+    ax.set_xlabel('Time [min]')
+    ax.set_ylabel('Pointing error [arcsec]')
+    ax.set_title('HST pointing error, log scale')
+    ax.grid(True, which='both')
+    ax.legend()
+    save_plot(fig, 'assignment9_part2_pointing_error_log.png', plot_dir)
+
+    # Zoomed pointing-error plot. The initial slew dominates the normal plot, so this is after 20min
+    fig, ax = plt.subplots()
+    zoom_start_min = 20.0
+    ymax = 0.0
+
+    for label, plot_label, data in case_data:
+        t_min = data[:, col_time] / 60.0
+        mask = t_min >= zoom_start_min
+
+        if np.any(mask):
+            plot_decimated(
+                ax,
+                t_min[mask],
+                data[:, col_true_arcsec][mask],
+                label=plot_label,
+                linewidth=0.8,
+                alpha=0.9,
+                max_points=4000
+            )
+            ymax = max(ymax, np.max(data[:, col_true_arcsec][mask]))
+
+    ax.axhline(0.007, linestyle='--', linewidth=1.0, label='0.007 arcsec HST reference')
+    ax.set_xlabel('Time [min]')
+    ax.set_ylabel('Pointing error [arcsec]')
+    ax.set_title('HST pointing error, zoomed after initial transient')
+    ax.grid(True)
+    ax.legend()
+
+    if ymax > 0.0:
+        ax.set_ylim(0.0, 1.1 * ymax)
+
+    save_plot(fig, 'assignment9_part2_pointing_error_zoomed.png', plot_dir)
 
     fig, ax = plt.subplots()
     for label, plot_label, data in case_data:
