@@ -17,8 +17,12 @@ PLOT_DIR = "plots"
 CURRENT_TLE = "HST1"
 OLD_TLE = "HST2"
 
-RUN_PART_1 = True
+RUN_PART_1 = False
 RUN_PART_2 = True
+
+RUN_PD_1ST = False
+RUN_SM_1ST = False
+RUN_SM_3ST = True
 
 ACTUATOR_LIMIT = 1.13
 ATTITUDE_DT = 0.25
@@ -26,14 +30,22 @@ RANDOM_SEED = 9
 
 PD_K1 = 1.0e-4
 PD_K2 = 2.0e-2
-SM_K1 = 1.0e-2
-SM_K = 1.0e-5
-SM_EPS = 1.0e-4
+SM_K1 = 8.0e-2
+SM_K = 4.0e-4
+SM_EPS = 5.0e-6
 
-GYRO_MU = 0.0
-GYRO_VARIANCE = 1.0e-6
-STAR_MU = 0.0
-STAR_Q = 1.0e-2
+USE_ASSIGNMENT_SENSOR_NOISE = False
+
+if USE_ASSIGNMENT_SENSOR_NOISE:
+    GYRO_MU = 0.0
+    GYRO_VARIANCE = 1.0e-6
+    STAR_MU = 0.0
+    STAR_Q = 1.0e-2
+else:
+    GYRO_MU = 0.0
+    GYRO_VARIANCE = 0.0
+    STAR_MU = 0.0
+    STAR_Q = 0.0
 
 SOLAR_A1 = 0.2
 SOLAR_A2 = 0.2
@@ -468,6 +480,21 @@ def make_part2_summary_and_plots(cases):
     print("      generated Part 2 plots in", PLOT_DIR)
 
 
+def get_part2_cases():
+    cases = []
+
+    if RUN_PD_1ST:
+        cases.append(["PD_1ST", "PD", 1])
+
+    if RUN_SM_1ST:
+        cases.append(["SM_1ST", "SM", 1])
+
+    if RUN_SM_3ST:
+        cases.append(["SM_3ST", "SM", 3])
+
+    return cases
+
+
 def main():
     make_output_dirs()
     tles = ol.read_tles(TLE_FILE)
@@ -489,17 +516,18 @@ def main():
         current = tles[CURRENT_TLE]
         period = ol.SECONDS_IN_DAY / current["revs_per_day"]
 
-        cases = [
-            ["PD_1ST", "PD", 1],
-            ["SM_1ST", "SM", 1],
-            ["SM_3ST", "SM", 3]
-        ]
+        cases = get_part2_cases()
 
-        for idx, (label, controller, trackers) in enumerate(cases, start=3):
-            print("[{}/5] Running Part 2 case {}".format(idx, label))
-            run_scenario(Part2Case(tles, label, controller, trackers), 4.0 * period, ATTITUDE_DT)
+        if len(cases) == 0:
+            print("No Part 2 cases selected.")
+        else:
+            total_steps = len(cases)
 
-        make_part2_summary_and_plots(cases)
+            for idx, (label, controller, trackers) in enumerate(cases, start=1):
+                print("[{}/{}] Running Part 2 case {}".format(idx, total_steps, label))
+                run_scenario(Part2Case(tles, label, controller, trackers), 4.0 * period, ATTITUDE_DT)
+
+            make_part2_summary_and_plots(cases)
 
     print("Done.")
     print("Data folder:", DATA_DIR)

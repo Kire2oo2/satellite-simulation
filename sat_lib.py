@@ -967,16 +967,21 @@ def control_torque(controller, q_err_est, w_hat_b_ib, J,
 
 
 def attitude_step(t, dt, r_i, q_ib, w_b_ib, q_desired, J, J_inv,
-                              controller, star_trackers, rng, actuator_limit,
-                              gyro_mu, gyro_variance, star_mu, star_Q,
-                              pd_k1, pd_k2, sm_k1, sm_k, sm_eps,
-                              solar_a1, solar_a2, solar_p1, solar_p2,
-                              solar_phi1, solar_phi2):
-    q_measurements = []
-    for _ in range(star_trackers):
-        q_measurements.append(star_tracker_measurement(q_ib, rng, star_mu, star_Q))
+                  controller, star_trackers, rng, actuator_limit,
+                  gyro_mu, gyro_variance, star_mu, star_Q,
+                  pd_k1, pd_k2, sm_k1, sm_k, sm_eps,
+                  solar_a1, solar_a2, solar_p1, solar_p2,
+                  solar_phi1, solar_phi2):
 
-    q_hat_ib = average_star_trackers(q_measurements)
+    q_measurements_all = []
+
+    # Always generate 3 tracker measurements so 1ST and 3ST consume
+    # the same random sequence before gyro noise is generated.
+    for _ in range(3):
+        q_measurements_all.append(star_tracker_measurement(q_ib, rng, star_mu, star_Q))
+
+    q_hat_ib = average_star_trackers(q_measurements_all[:star_trackers])
+
     w_hat_b_ib = w_b_ib + rng.normal(gyro_mu, np.sqrt(gyro_variance), 3)
 
     q_err_est = quaternion_error(q_desired, q_hat_ib)
@@ -1019,7 +1024,6 @@ def attitude_step(t, dt, r_i, q_ib, w_b_ib, q_desired, J, J_inv,
     q_next = _q_array(q_ib + dt * q_dot)
 
     return q_next, w_next, row
-
 
 def part2_header():
     return (
