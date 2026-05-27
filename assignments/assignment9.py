@@ -1,6 +1,7 @@
 import os
 import numpy as np
 
+import simutils as su
 import simulator as sim
 import orbit_lib as ol
 import sat_lib as sl
@@ -66,6 +67,8 @@ class Part1Task1(sim.BaseScenario):
     def __init__(self, tles):
         self.tles = tles
         self.rows = []
+        self.r_i = np.zeros(3)
+        self.q_E = su.Quaternion()
 
     def init(self, t):
         tle = self.tles[CURRENT_TLE]
@@ -74,6 +77,8 @@ class Part1Task1(sim.BaseScenario):
         theta_E = ol.sidereal_angle(JD)
 
         r_i, v_i = orbit.get_state()
+        self.r_i = r_i
+        self.q_E = su.Quaternion(theta_E, np.array([0.0, 0.0, 1.0]))
         h, e, theta, raan, inc, arg_perigee = ol.orbit_params_from_state(r_i, v_i)
         a = h**2 / (ol.mu * (1.0 - e**2))
         E = ol.eccentric_anomaly_from_true_anomaly(theta, e)
@@ -104,6 +109,15 @@ class Part1Task1(sim.BaseScenario):
     def update(self, t, dt):
         pass
 
+    def get(self):
+        return [
+            ["satellite", self.r_i, su.Quaternion()],
+            ["body frame", self.r_i, su.Quaternion()],
+            ["earth", np.zeros(3), self.q_E],
+            ["ECEF frame", np.zeros(3), self.q_E],
+            ["ECI frame", np.zeros(3), su.Quaternion()]
+        ]
+
     def post_process(self, t, dt):
         file_name = os.path.join(DATA_DIR, "assignment9_task1_epoch_table.txt")
 
@@ -121,6 +135,8 @@ class Part1Task2(sim.BaseScenario):
         self.JD0 = None
         self.altitude_log = []
         self.ground_track = []
+        self.r_i = np.zeros(3)
+        self.q_E = su.Quaternion()
 
     def init(self, t):
         current = self.tles[CURRENT_TLE]
@@ -128,12 +144,16 @@ class Part1Task2(sim.BaseScenario):
         self.JD0 = ol.epoch_to_julian_date(current["epoch"])
         self.altitude_log = []
         self.ground_track = []
+        self.r_i, _ = self.orbit.get_state()
+        self.q_E = su.Quaternion(ol.sidereal_angle(self.JD0), np.array([0.0, 0.0, 1.0]))
 
     def update(self, t, dt):
         r_i, v_i = self.orbit.get_state()
         h, e, theta, raan, inc, arg_perigee = ol.orbit_params_from_state(r_i, v_i)
         a = h**2 / (ol.mu * (1.0 - e**2))
         theta_E = ol.sidereal_angle(self.JD0 + t / ol.SECONDS_IN_DAY)
+        self.r_i = r_i
+        self.q_E = su.Quaternion(theta_E, np.array([0.0, 0.0, 1.0]))
         lon, lat, geodetic_altitude = ol.geodetic_from_eci(r_i, theta_E)
         radial_altitude = np.linalg.norm(r_i) - ol.R_E
 
@@ -141,6 +161,15 @@ class Part1Task2(sim.BaseScenario):
         self.ground_track.append([t, lon, lat, geodetic_altitude])
 
         self.orbit.propagate(dt)
+
+    def get(self):
+        return [
+            ["satellite", self.r_i, su.Quaternion()],
+            ["body frame", self.r_i, su.Quaternion()],
+            ["earth", np.zeros(3), self.q_E],
+            ["ECEF frame", np.zeros(3), self.q_E],
+            ["ECI frame", np.zeros(3), su.Quaternion()]
+        ]
 
     def post_process(self, t, dt):
         altitude_log = np.asarray(self.altitude_log)
@@ -183,6 +212,8 @@ class Part1Task2OldTLE(sim.BaseScenario):
         self.diff_log = []
         self.gt_current = []
         self.gt_old = []
+        self.r_i = np.zeros(3)
+        self.q_E = su.Quaternion()
 
     def init(self, t):
         old = self.tles[self.old_tle_name]
@@ -229,11 +260,15 @@ class Part1Task2OldTLE(sim.BaseScenario):
         self.diff_log = []
         self.gt_current = []
         self.gt_old = []
+        self.r_i, _ = self.current_orbit.get_state()
+        self.q_E = su.Quaternion(ol.sidereal_angle(self.current_JD), np.array([0.0, 0.0, 1.0]))
 
     def update(self, t, dt):
         r_c, v_c = self.current_orbit.get_state()
         r_o, v_o = self.old_orbit.get_state()
         theta_E = ol.sidereal_angle(self.current_JD + t / ol.SECONDS_IN_DAY)
+        self.r_i = r_c
+        self.q_E = su.Quaternion(theta_E, np.array([0.0, 0.0, 1.0]))
 
         lon_c, lat_c, alt_c = ol.geodetic_from_eci(r_c, theta_E)
         lon_o, lat_o, alt_o = ol.geodetic_from_eci(r_o, theta_E)
@@ -244,6 +279,15 @@ class Part1Task2OldTLE(sim.BaseScenario):
 
         self.current_orbit.propagate(dt)
         self.old_orbit.propagate(dt)
+
+    def get(self):
+        return [
+            ["satellite", self.r_i, su.Quaternion()],
+            ["body frame", self.r_i, su.Quaternion()],
+            ["earth", np.zeros(3), self.q_E],
+            ["ECEF frame", np.zeros(3), self.q_E],
+            ["ECI frame", np.zeros(3), su.Quaternion()]
+        ]
 
     def post_process(self, t, dt):
         diff_log = np.asarray(self.diff_log)
@@ -304,6 +348,8 @@ class Part2Case(sim.BaseScenario):
         self.JD0 = None
         self.q_ib = Q_IB_0.copy()
         self.w_b_ib = W_B_IB_0.copy()
+        self.q_E = su.Quaternion()
+        self.r_i = np.zeros(3)
         self.attitude_log = []
         self.rng = np.random.default_rng(RANDOM_SEED)
 
@@ -313,6 +359,8 @@ class Part2Case(sim.BaseScenario):
         self.orbit = ol.orbit_pkepler_from_tle(tle)
         self.q_ib = Q_IB_0.copy()
         self.w_b_ib = W_B_IB_0.copy()
+        self.q_E = su.Quaternion(ol.sidereal_angle(self.JD0), np.array([0.0, 0.0, 1.0]))
+        self.r_i, _ = self.orbit.get_state()
         self.attitude_log = []
         self.rng = np.random.default_rng(RANDOM_SEED)
 
@@ -327,8 +375,20 @@ class Part2Case(sim.BaseScenario):
             SOLAR_A1, SOLAR_A2, SOLAR_P1, SOLAR_P2, SOLAR_PHI1, SOLAR_PHI2
         )
 
+        self.r_i = r_i
         self.attitude_log.append(row)
         self.orbit.propagate(dt)
+        theta_E = ol.sidereal_angle(self.JD0 + (t + dt) / ol.SECONDS_IN_DAY)
+        self.q_E = su.Quaternion(theta_E, np.array([0.0, 0.0, 1.0]))
+
+    def get(self):
+        return [
+            ["satellite", self.r_i, su.Quaternion(self.q_ib)],
+            ["body frame", self.r_i, su.Quaternion(self.q_ib)],
+            ["earth", np.zeros(3), self.q_E],
+            ["ECEF frame", np.zeros(3), self.q_E],
+            ["ECI frame", np.zeros(3), su.Quaternion()]
+        ]
 
     def post_process(self, t, dt):
         data = np.asarray(self.attitude_log)
