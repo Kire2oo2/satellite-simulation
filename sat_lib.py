@@ -247,6 +247,9 @@ class RigidBody:
 
         return np.concatenate((q_dot, w_dot))
 
+    def f(self, t, x):
+        return self.f_attitude(t, x)
+
 
 class gyro:
     def __init__(self, q_bs=su.Quaternion(), p_b=np.array([0.0, 0.0, 0.0]), mu=0.0, Q=0.0, z0=None, params=None):
@@ -455,6 +458,11 @@ class ADCS_PD:
 
         if len(args) == 7:
             _, _, q_ib, w_b_ib, q_io, w_i_io, dw_i_io = args
+            self._update_from_true_attitude(q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
+            return
+
+        if len(args) == 8:
+            _, _, _, q_ib, w_b_ib, q_io, w_i_io, dw_i_io = args
             self._update_from_true_attitude(q_ib, w_b_ib, q_io, w_i_io, dw_i_io)
             return
 

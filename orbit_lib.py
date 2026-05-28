@@ -9,6 +9,11 @@ SECONDS_IN_DAY = 24.0 * 3600.0
 DTOR = np.pi / 180.0   # Degrees to radians
 RTOD = 180.0 / np.pi   # Radians to degrees
 
+#aliases if needed?
+RE = R_E
+wE = w_E
+omega_E = w_E
+
 
 def mean_anomaly_from_eccentric(E, e):
     return E - e * np.sin(E)
@@ -38,10 +43,12 @@ def orbital_period_from_revs_per_day(revs_per_day):
 
 
 def orbit_params_from_tle_params(e, revs_per_day, Me, raan, i, arg_perigee):
-    n = 2 * np.pi * revs_per_day / (24 * 3600)
+    n = 2 * np.pi * revs_per_day / SECONDS_IN_DAY
     a = (mu / n ** 2) ** (1 / 3)
     h = np.sqrt(a * mu * (1 - e ** 2))
-    return h, e, Me, raan, i, arg_perigee
+    E = eccentric_anomaly_from_mean_anomaly(Me, e)
+    theta = true_anomaly_from_eccentric_anomaly(E, e)
+    return h, e, theta, raan, i, arg_perigee
 
 
 def tle_params_from_orbit_params(h, e, true_anomaly, raan, i, arg_perigee):

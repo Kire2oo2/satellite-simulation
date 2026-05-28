@@ -8,7 +8,7 @@ import sat_lib as sl
 import plotter as pl
 
 
-VISUALISE = False
+
 TLE_FILE = "tle.txt"
 EARTH_IMAGE = "earth_grid.jpg"
 DATA_DIR = "data"
@@ -20,7 +20,8 @@ OLD_TLE = "HST2"
 #-----------------------------------------------------------------
 #Variables to change what programs are running for this assignment:
 
-RUN_PART_1 = False
+VISUALISE = False
+RUN_PART_1 = True
 RUN_PART_2 = True
 
 RUN_PD_1ST = True
