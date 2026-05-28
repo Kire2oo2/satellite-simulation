@@ -21,14 +21,16 @@ OLD_TLE = "HST2"
 #Variables to change what programs are running for this assignment:
 
 VISUALISE = False
-RUN_PART_1 = True
+RUN_PART_1 = False
 RUN_PART_2 = True
 
 RUN_PD_1ST = True
-RUN_PD_3ST = True
+RUN_PD_3ST = False
 RUN_SM_1ST = True
-RUN_SM_3ST = True
+RUN_SM_3ST = False
 
+
+USE_ASSIGNMENT_SENSOR_NOISE = False
 #-----------------------------------------------------------------
 
 ACTUATOR_LIMIT = 1.13
@@ -40,8 +42,6 @@ PD_K2 = 2.0e-2
 SM_K1 = 0.25
 SM_K = 3e-4
 SM_EPS = 3.0e-5
-
-USE_ASSIGNMENT_SENSOR_NOISE = True
 
 if USE_ASSIGNMENT_SENSOR_NOISE:
     GYRO_MU = 0.0
@@ -141,9 +141,26 @@ class Part1Task1(sim.BaseScenario):
         file_name = os.path.join(DATA_DIR, "assignment9_task1_epoch_table.txt")
 
         with open(file_name, "w") as f:
-            for name, value, unit in self.rows:
-                f.write("{:<42s} {} {}\n".format(name, value, unit))
+            f.write("Assignment 9 Part 1 Task 1\n")
+            f.write("HST data at epoch\n")
+            f.write("=" * 90 + "\n")
 
+            print("\n=== Assignment 9 Part 1 Task 1 ===")
+            print("HST data at epoch")
+            print("=" * 90)
+
+            for name, value, unit in self.rows:
+                if isinstance(value, np.ndarray):
+                    value_string = np.array2string(value, precision=12, suppress_small=False)
+                else:
+                    value_string = str(value)
+
+                line = "{:<42s}: {} {}".format(name, value_string, unit)
+
+                print(line)
+                f.write(line + "\n")
+
+        print("=" * 90)
         print("      saved:", file_name)
 
 
@@ -247,7 +264,7 @@ class Part1Task2OldTLE(sim.BaseScenario):
 
         tau = 0.0
         while tau < delta_epoch:
-            h_step = min(3600.0, delta_epoch - tau)
+            h_step = min(60.0, delta_epoch - tau)
             self.old_orbit.propagate(h_step)
             tau += h_step
 

@@ -204,7 +204,7 @@ def plot_assignment9_altitude(altitude_log, file_name, plot_dir='plots'):
         alpha=0.9
     )
 
-    ax.axhline(120.0, linestyle='--', linewidth=1.0, label='approx. reentry interface')
+    ax.axhline(120.0, linestyle='--', linewidth=1.0, label='atmosphere border')
     ax.set_xlabel('Years after epoch')
     ax.set_ylabel('Altitude [km]')
     ax.set_title('HST 9-year altitude using PKepler')
